@@ -2,8 +2,8 @@ import streamlit as st
 import math
 import pandas as pd
 
-st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
-st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk")
+st.set_page_config(page_title="RO-Anlagen Planer (Parallel)", layout="wide")
+st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk - Parallelschaltung")
 
 # --- Hydraulik-Kernfunktionen ---
 def berechne_hydraulischen_widerstand(d_inner_mm, laenge_mm, drosseln_liste, anzahl_90_grad):
@@ -35,8 +35,7 @@ def empfehle_drossel_durchmesser(flow_lh, delta_p_bar):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("1. Verschaltung & Aufbau")
-    schaltung = st.selectbox("Verschaltung", ["In Reihe (Konzentrat -> Feed)", "Parallel (Aufteilung)"])
+    st.header("1. Aufbau (Parallelschaltung)")
     anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
     ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
     
@@ -135,36 +134,17 @@ with st.sidebar:
         else:
             st.success("**Live Balancing:**\n100.0 % des Wassers fließen ungeteilt durch die Hauptleitung.")
 
-    st.header("4. Konzentrat- & Zwischenleitungen")
+    st.header("4. Sammelleitungen (Konzentrat)")
     leitungen_konz = []
-    leitung_out = None
     
-    if schaltung == "In Reihe (Konzentrat -> Feed)":
-        # Zwischenleitungen (nur wenn > 1 Membran)
-        for i in range(anzahl_membranen - 1):
-            with st.expander(f"Zwischenleitung: Membran {i+1} -> {i+2}"):
-                leitungen_konz.append({
-                    "d": st.number_input(f"Ø Innen (mm)", value=15.0, key=f"d_k_{i}"),
-                    "l": st.number_input(f"Länge (mm)", value=500.0, key=f"l_k_{i}"),
-                    "b": st.number_input(f"Bögen", 0, 10, 2, key=f"b_k_{i}")
-                })
-        # Auslassleitung (immer vorhanden)
-        with st.expander(f"Konzentrat-Auslassleitung (nach Membran {anzahl_membranen})", expanded=True):
-            st.caption("Diese Leitung führt zur finalen Drossel/Regelventil.")
-            leitung_out = {
-                "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out"),
-                "l": st.number_input("Länge Auslass (mm)", value=1000.0, key="l_out"),
-                "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
-            }
-    else:
-        # Sammelleitungen Parallelschaltung
-        for i in range(anzahl_membranen - 1):
-            with st.expander(f"Sammelleitung T-Stück {i+1} (Mischung)"):
-                leitungen_konz.append({
-                    "d": st.number_input(f"Ø Innen (mm)", value=20.0, key=f"d_p_{i}"),
-                    "l": st.number_input(f"Länge (mm)", value=300.0, key=f"l_p_{i}"),
-                    "b": st.number_input(f"Bögen", 0, 10, 0, key=f"b_p_{i}")
-                })
+    # Sammelleitungen Parallelschaltung
+    for i in range(anzahl_membranen - 1):
+        with st.expander(f"Sammelleitung T-Stück {i+1} (Mischung)"):
+            leitungen_konz.append({
+                "d": st.number_input(f"Ø Innen (mm)", value=20.0, key=f"d_p_{i}"),
+                "l": st.number_input(f"Länge (mm)", value=300.0, key=f"l_p_{i}"),
+                "b": st.number_input(f"Bögen", 0, 10, 0, key=f"b_p_{i}")
+            })
 
 # --- BERECHNUNG DER ANLAGE ---
 tcf = math.exp(2640 * (1/298.15 - 1/(temp + 273.15)))
@@ -187,24 +167,14 @@ p_verlust_netzwerk = (r_netzwerk * q_ms**2) / 100000 if hat_t_stueck else 0
 
 p_effektiv_start = p_system - p_verlust_druck_haupt - p_verlust_netzwerk
 
-current_feed_flow = q_feed_start_lh
-current_tds = tds_feed
-current_p = p_effektiv_start
-
 membran_daten = []
 total_permeat = 0
-konzentrat_druck_verlauf = current_p
 
-# Membran-Schleife
+# Membran-Schleife (Rein parallel)
 for i in range(anzahl_membranen):
-    if schaltung == "Parallel":
-        f_in = q_feed_start_lh / anzahl_membranen
-        p_in = p_effektiv_start 
-        tds_in = tds_feed
-    else:
-        f_in = current_feed_flow
-        p_in = current_p
-        tds_in = current_tds
+    f_in = q_feed_start_lh / anzahl_membranen
+    p_in = p_effektiv_start 
+    tds_in = tds_feed
 
     pi = (tds_in / 100) * 0.07
     ndp = max(0, p_in - pi)
@@ -224,37 +194,19 @@ for i in range(anzahl_membranen):
         "Feed TDS (ppm)": round(tds_in, 0)
     })
 
-    if schaltung == "In Reihe (Konzentrat -> Feed)":
-        druck_nach_spacer = p_in - 0.2
-        if i < anzahl_membranen - 1:
-            l_cfg = leitungen_konz[i]
-            r_zwischen = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
-            p_verlust_zwischen = (r_zwischen * ((q_c / 1000) / 3600)**2) / 100000
-            current_p = druck_nach_spacer - p_verlust_zwischen 
-        else:
-            current_p = druck_nach_spacer 
-            
-        current_feed_flow = q_c
-        current_tds = tds_c
+# Enddrossel & Auslassleitung Parallelschaltung
+end_konzentrat_flow = q_feed_start_lh - total_permeat
+current_sammel_flow = q_feed_start_lh / anzahl_membranen - membran_daten[0]["Permeat (l/h)"]
+p_sammel = p_effektiv_start - 0.2
 
-# Enddrossel & Auslassleitung
-end_konzentrat_flow = q_c if schaltung == "In Reihe (Konzentrat -> Feed)" else (q_feed_start_lh - total_permeat)
-
-if schaltung == "In Reihe (Konzentrat -> Feed)":
-    r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
-    p_verlust_out = (r_out * ((end_konzentrat_flow / 1000) / 3600)**2) / 100000
-    konzentrat_druck_verlauf = current_p - p_verlust_out
+for i in range(anzahl_membranen - 1):
+    l_cfg = leitungen_konz[i]
+    r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
+    p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
+    p_sammel -= (p_verlust_sammel + 0.05) 
+    current_sammel_flow += (q_feed_start_lh / anzahl_membranen - membran_daten[i+1]["Permeat (l/h)"])
     
-elif schaltung == "Parallel":
-    current_sammel_flow = q_feed_start_lh / anzahl_membranen - membran_daten[0]["Permeat (l/h)"]
-    p_sammel = p_effektiv_start - 0.2
-    for i in range(anzahl_membranen - 1):
-        l_cfg = leitungen_konz[i]
-        r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
-        p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
-        p_sammel -= (p_verlust_sammel + 0.05) 
-        current_sammel_flow += (q_feed_start_lh / anzahl_membranen - membran_daten[i+1]["Permeat (l/h)"])
-    konzentrat_druck_verlauf = p_sammel
+konzentrat_druck_verlauf = p_sammel
 
 abzubauender_druck = max(0.1, konzentrat_druck_verlauf - 0.5) 
 empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
@@ -286,5 +238,5 @@ st.divider()
 st.subheader("🛑 Auslegung Konzentrat-Regelventil (End-Drossel)")
 v1, v2, v3 = st.columns(3)
 v1.metric("Restdruck vor Ventil", f"{konzentrat_druck_verlauf:.2f} bar")
-v2.metric("Abzubauender Druck ($\Delta$P)", f"{abzubauender_druck:.2f} bar")
+v2.metric("Abzubauender Druck (ΔP)", f"{abzubauender_druck:.2f} bar")
 v3.metric("Empfohlener Drosseldurchmesser", f"Ø {empfohlene_drossel_mm:.2f} mm")
