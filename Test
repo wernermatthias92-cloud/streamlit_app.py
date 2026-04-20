@@ -1,0 +1,116 @@
+import streamlit as st
+import math
+import pandas as pd
+
+st.set_page_config(page_title="RO-Anlagen Planer Pro (Advanced)", layout="wide")
+st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk (Physikalisch verbessert)")
+
+# --- KONSTANTEN ---
+RHO = 998  # kg/m³ (Wasser bei ~20°C)
+MU = 0.001  # Pa*s
+
+# --- VERBESSERTE HYDRAULIK ---
+def reynolds(v, d):
+    return (RHO * v * d) / MU
+
+def friction_factor(Re, rel_roughness=1e-5):
+    if Re < 2300:
+        return 64 / Re
+    # Colebrook-White (approx via Swamee-Jain)
+    return 0.25 / (math.log10(rel_roughness/3.7 + 5.74/(Re**0.9)))**2
+
+
+def berechne_druckverlust(d_mm, laenge_mm, flow_m3s, anzahl_bogen):
+    if d_mm <= 0:
+        return 0
+    d = d_mm / 1000
+    A = math.pi * (d/2)**2
+    v = flow_m3s / A
+    Re = reynolds(v, d)
+    f = friction_factor(Re)
+
+    dp_rohr = f * (laenge_mm/1000 / d) * 0.5 * RHO * v**2
+    dp_bogen = anzahl_bogen * 1.2 * 0.5 * RHO * v**2
+
+    return dp_rohr + dp_bogen
+
+# --- OSMOTISCHER DRUCK (genauer) ---
+def osmotic_pressure(tds_ppm, T_C):
+    # van't Hoff Näherung
+    T_K = T_C + 273.15
+    i = 2  # NaCl approx
+    C = tds_ppm / 58.44 / 1000  # mol/L -> mol/kg approx
+    return i * 0.08314 * T_K * C  # bar
+
+# --- MEMBRANMODELL (inkl. Konzentrationspolarisation) ---
+def permeat_flux(A, ndp, k_mass, recovery_local):
+    cp_factor = math.exp(recovery_local / max(1e-6, k_mass))
+    ndp_eff = max(0, ndp / cp_factor)
+    return A * ndp_eff
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("Systemparameter")
+    n = st.number_input("Membranen", 1, 10, 2)
+    p_feed = st.number_input("Systemdruck (bar)", value=15.0)
+    tds = st.number_input("Feed TDS (ppm)", value=500)
+    T = st.slider("Temperatur (°C)", 5, 50, 20)
+
+    st.header("Membran")
+    A = st.number_input("Permeabilität A (l/m²hbar)", value=1.5)
+    area = st.number_input("Fläche (m²)", value=7.5)
+    rejection = st.slider("Rückhalt", 0.9, 0.999, 0.99)
+
+    st.header("Hydraulik")
+    d = st.number_input("Rohrdurchmesser (mm)", value=15.0)
+    L = st.number_input("Länge (mm)", value=2000.0)
+    bends = st.number_input("Bögen", 0, 10, 2)
+
+# --- INITIAL ---
+flow_guess = 1e-4  # m³/s initial
+
+results = []
+total_perm = 0
+p = p_feed
+c = tds
+flow = flow_guess
+
+for i in range(n):
+    # Druckverlust Rohr
+    dp = berechne_druckverlust(d, L, flow, bends) / 1e5
+    p_eff = p - dp
+
+    pi = osmotic_pressure(c, T)
+    ndp = max(0, p_eff - pi)
+
+    # Massenübertragungskoeffizient (vereinfacht)
+    k_mass = 0.5
+    recovery_local = 0.5
+
+    j = permeat_flux(A, ndp, k_mass, recovery_local)
+    q_perm = j * area / 3600  # m³/s
+
+    if q_perm > flow:
+        q_perm = flow * 0.9
+
+    q_conc = flow - q_perm
+
+    c_perm = c * (1 - rejection)
+    c_conc = (flow * c - q_perm * c_perm) / max(q_conc, 1e-9)
+
+    results.append({
+        "Modul": i+1,
+        "Druck": round(p_eff,2),
+        "Permeat l/h": round(q_perm*3600*1000,1),
+        "TDS": round(c,1)
+    })
+
+    total_perm += q_perm
+    flow = q_conc
+    c = c_conc
+    p = p_eff - 0.2
+
+# --- OUTPUT ---
+st.subheader("Ergebnisse")
+st.dataframe(pd.DataFrame(results))
+st.metric("Permeat gesamt (l/h)", round(total_perm*3600*1000,1))
