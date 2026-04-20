@@ -6,7 +6,7 @@ st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk")
 
 # --- Hydraulik-Kernfunktionen ---
-def berechne_hydraulischen_widerstand(d_inner_mm, laenge_mm, drosseln_liste, anzahl_90_grad):
+def berechne_hydraulischen_widerstand(d_inner_mm, laenge_mm, drosseln_liste, anzahl_90_grad, zeta_extra=0.0):
     if d_inner_mm <= 0: return 1e12
     d_m = d_inner_mm / 1000
     area = math.pi * (d_m/2)**2
@@ -15,7 +15,8 @@ def berechne_hydraulischen_widerstand(d_inner_mm, laenge_mm, drosseln_liste, anz
     zeta_drossel = sum([1.5 * (d_inner_mm/d)**4 for d in drosseln_liste if d > 0])
     zeta_bogen = anzahl_90_grad * 1.2
     
-    zeta_total = zeta_rohr + zeta_drossel + zeta_bogen
+    # zeta_extra wird genutzt für T-Stücke (z.B. seitliche Einmündung)
+    zeta_total = zeta_rohr + zeta_drossel + zeta_bogen + zeta_extra
     r_wert = zeta_total * 500 / (area**2)
     return r_wert
 
@@ -53,7 +54,6 @@ with st.sidebar:
 
     st.header("3. Rohrleitungen Zuleitung")
     
-    # --- MENÜ 1: Saugseite ---
     with st.expander("Zuleitung ZUR Pumpe (Saugseite)", expanded=False):
         d_saug = st.number_input("Ø Innen Saugseite (mm)", value=20.0, key="ds")
         l_saug = st.number_input("Länge (mm)", value=1000.0, key="ls")
@@ -63,7 +63,6 @@ with st.sidebar:
     
     r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
 
-    # --- MENÜ 2: Druckseite ---
     with st.expander("Zuleitung NACH Pumpe (Druckseite)", expanded=False):
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=15.0)
         l_druck = st.number_input("Länge Hauptleitung (mm)", value=2000.0)
@@ -126,7 +125,6 @@ with st.sidebar:
             if sub_a: pct_a1 = math.sqrt(r_a2) / (math.sqrt(r_a1) + math.sqrt(r_a2))
             if sub_b: pct_b1 = math.sqrt(r_b2) / (math.sqrt(r_b1) + math.sqrt(r_b2))
 
-        # Live-Balancing Ausgabe
         st.divider()
         if hat_t_stueck:
             st.success(f"**Live Balancing im Netzwerk:**\nStrang A führt {pct_a*100:.1f} % des Wassers.\nStrang B führt {pct_b*100:.1f} % des Wassers.")
@@ -140,7 +138,6 @@ with st.sidebar:
     leitung_out = None
     
     if schaltung == "In Reihe (Konzentrat -> Feed)":
-        # Zwischenleitungen (nur wenn > 1 Membran)
         for i in range(anzahl_membranen - 1):
             with st.expander(f"Zwischenleitung: Membran {i+1} -> {i+2}"):
                 leitungen_konz.append({
@@ -148,23 +145,35 @@ with st.sidebar:
                     "l": st.number_input(f"Länge (mm)", value=500.0, key=f"l_k_{i}"),
                     "b": st.number_input(f"Bögen", 0, 10, 2, key=f"b_k_{i}")
                 })
-        # Auslassleitung (immer vorhanden)
+        
         with st.expander(f"Konzentrat-Auslassleitung (nach Membran {anzahl_membranen})", expanded=True):
             st.caption("Diese Leitung führt zur finalen Drossel/Regelventil.")
             leitung_out = {
-                "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out"),
-                "l": st.number_input("Länge Auslass (mm)", value=1000.0, key="l_out"),
-                "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
+                "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out_r"),
+                "l": st.number_input("Länge Auslass (mm)", value=1000.0, key="l_out_r"),
+                "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out_r")
             }
-    else:
-        # Sammelleitungen Parallelschaltung
-        for i in range(anzahl_membranen - 1):
-            with st.expander(f"Sammelleitung T-Stück {i+1} (Mischung)"):
+            
+    elif schaltung == "Parallel":
+        for i in range(anzahl_membranen):
+            with st.expander(f"Konzentratleitung: Membran {i+1} -> Mischleitung"):
+                if i == 0:
+                    st.caption("💡 Leitung 1 geht **gerade** in die Mischleitung (kein T-Stück Umlenkverlust).")
+                else:
+                    st.caption("💡 Leitung mündet **seitlich** in die Mischleitung (inkl. T-Stück Umlenkverlust).")
                 leitungen_konz.append({
-                    "d": st.number_input(f"Ø Innen (mm)", value=20.0, key=f"d_p_{i}"),
-                    "l": st.number_input(f"Länge (mm)", value=300.0, key=f"l_p_{i}"),
+                    "d": st.number_input(f"Ø Innen (mm)", value=15.0, key=f"d_p_{i}"),
+                    "l": st.number_input(f"Länge (mm)", value=500.0, key=f"l_p_{i}"),
                     "b": st.number_input(f"Bögen", 0, 10, 0, key=f"b_p_{i}")
                 })
+                
+        with st.expander("Mischleitung nach letztem Zusammenfluss bis Drossel", expanded=True):
+            st.caption("Sammelt das gesamte Konzentrat und führt zum End-Regelventil.")
+            leitung_out = {
+                "d": st.number_input("Ø Innen Mischleitung (mm)", value=20.0, key="d_out_p"),
+                "l": st.number_input("Länge Mischleitung (mm)", value=1500.0, key="l_out_p"),
+                "b": st.number_input("Bögen Mischleitung", 0, 10, 2, key="b_out_p")
+            }
 
 # --- BERECHNUNG DER ANLAGE ---
 tcf = math.exp(2640 * (1/298.15 - 1/(temp + 273.15)))
@@ -193,7 +202,6 @@ current_p = p_effektiv_start
 
 membran_daten = []
 total_permeat = 0
-konzentrat_druck_verlauf = current_p
 
 # Membran-Schleife
 for i in range(anzahl_membranen):
@@ -237,8 +245,9 @@ for i in range(anzahl_membranen):
         current_feed_flow = q_c
         current_tds = tds_c
 
-# Enddrossel & Auslassleitung
-end_konzentrat_flow = q_c if schaltung == "In Reihe (Konzentrat -> Feed)" else (q_feed_start_lh - total_permeat)
+# Enddrossel & Auslassleitung Berechnungen
+end_konzentrat_flow = q_feed_start_lh - total_permeat
+konzentrat_druck_verlauf = 0
 
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
@@ -246,15 +255,30 @@ if schaltung == "In Reihe (Konzentrat -> Feed)":
     konzentrat_druck_verlauf = current_p - p_verlust_out
     
 elif schaltung == "Parallel":
-    current_sammel_flow = q_feed_start_lh / anzahl_membranen - membran_daten[0]["Permeat (l/h)"]
-    p_sammel = p_effektiv_start - 0.2
-    for i in range(anzahl_membranen - 1):
+    p_sammel_kandidaten = []
+    # Druckabfall für jede Zuleitung vom Modul in die Mischleitung berechnen
+    for i in range(anzahl_membranen):
         l_cfg = leitungen_konz[i]
-        r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
-        p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
-        p_sammel -= (p_verlust_sammel + 0.05) 
-        current_sammel_flow += (q_feed_start_lh / anzahl_membranen - membran_daten[i+1]["Permeat (l/h)"])
-    konzentrat_druck_verlauf = p_sammel
+        q_c_branch = membran_daten[i]["Konzentrat (l/h)"]
+        
+        # Modul 1 = gerade (zeta 0), alle anderen = seitlich ins T-Stück (zeta 1.3)
+        zeta_einmuendung = 0.0 if i == 0 else 1.3 
+        
+        r_branch = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'], zeta_extra=zeta_einmuendung)
+        p_verlust_branch = (r_branch * ((q_c_branch / 1000) / 3600)**2) / 100000
+        
+        # Druck nach Membran ist Eingangsdruck - 0.2 bar Spacerverlust
+        p_branch_out = (membran_daten[i]["Eingangsdruck (bar)"] - 0.2) - p_verlust_branch
+        p_sammel_kandidaten.append(p_branch_out)
+        
+    # Wir nehmen den hydraulisch ungünstigsten Zweig (niedrigster Druck), 
+    # um sicherzustellen, dass das Endventil funktioniert.
+    p_manifold = min(p_sammel_kandidaten)
+    
+    # Druckverlust der finalen Mischleitung
+    r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
+    p_verlust_out = (r_out * ((end_konzentrat_flow / 1000) / 3600)**2) / 100000
+    konzentrat_druck_verlauf = p_manifold - p_verlust_out
 
 abzubauender_druck = max(0.1, konzentrat_druck_verlauf - 0.5) 
 empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
