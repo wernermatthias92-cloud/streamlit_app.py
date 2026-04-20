@@ -52,17 +52,19 @@ with st.sidebar:
     p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=15.0)
 
     st.header("3. Rohrleitungen Zuleitung")
-    with st.expander("Gesamte Zuleitung (Saug- & Druckseite)", expanded=False):
-        st.markdown("### Saugseite (Vor Pumpe)")
+    
+    # --- MENÜ 1: Saugseite ---
+    with st.expander("Zuleitung ZUR Pumpe (Saugseite)", expanded=False):
         d_saug = st.number_input("Ø Innen Saugseite (mm)", value=20.0, key="ds")
         l_saug = st.number_input("Länge (mm)", value=1000.0, key="ls")
         b_saug = st.number_input("Anzahl 90° Bögen", 0, 10, 0, key="bs")
         n_drossel_saug = st.number_input("Anzahl Drosseln", 0, 5, 0, key="nds")
         drosseln_saug = [st.number_input(f"Ø Drossel {i+1} (mm)", value=10.0, key=f"drs_{i}") for i in range(n_drossel_saug)]
-        r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
+    
+    r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
 
-        st.divider()
-        st.markdown("### Druckseite (Pumpe -> Membran)")
+    # --- MENÜ 2: Druckseite ---
+    with st.expander("Zuleitung NACH Pumpe (Druckseite)", expanded=False):
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=15.0)
         l_druck = st.number_input("Länge Hauptleitung (mm)", value=2000.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
@@ -230,7 +232,7 @@ for i in range(anzahl_membranen):
             p_verlust_zwischen = (r_zwischen * ((q_c / 1000) / 3600)**2) / 100000
             current_p = druck_nach_spacer - p_verlust_zwischen 
         else:
-            current_p = druck_nach_spacer # Verlässt die letzte Membran
+            current_p = druck_nach_spacer 
             
         current_feed_flow = q_c
         current_tds = tds_c
@@ -239,7 +241,6 @@ for i in range(anzahl_membranen):
 end_konzentrat_flow = q_c if schaltung == "In Reihe (Konzentrat -> Feed)" else (q_feed_start_lh - total_permeat)
 
 if schaltung == "In Reihe (Konzentrat -> Feed)":
-    # Verlust der letzten Auslassleitung abziehen
     r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
     p_verlust_out = (r_out * ((end_konzentrat_flow / 1000) / 3600)**2) / 100000
     konzentrat_druck_verlauf = current_p - p_verlust_out
