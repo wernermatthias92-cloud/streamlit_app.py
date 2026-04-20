@@ -95,4 +95,66 @@ q_feed_start_lh = q_p_approx / (ausbeute_pct / 100) if (ausbeute_pct > 0 and q_p
 
 if ndp_start <= 0:
     st.error("Systemdruck zu gering!")
-    st.
+    st.stop()
+
+# Zuleitungsverlust
+q_ms = (q_feed_start_lh / 1000) / 3600
+p_verlust_druck_haupt = (r_druck_haupt * q_ms**2) / 100000
+p_effektiv_start = p_system - p_verlust_druck_haupt
+
+membran_daten = []
+total_permeat = 0
+
+# Membran-Schleife
+for i in range(anzahl_membranen):
+    f_in = q_feed_start_lh / anzahl_membranen
+    p_in = p_effektiv_start 
+    pi = (tds_feed / 100) * 0.07
+    ndp = max(0, p_in - pi)
+    q_p = m_flaeche * a_wert * ndp * tcf * 1000
+    if q_p > f_in * 0.95: q_p = f_in * 0.95 
+    q_c = f_in - q_p
+    total_permeat += q_p
+    membran_daten.append({"id": i, "q_c": q_c, "q_p": q_p})
+
+# Hydraulik Sammelleitungen berechnen
+total_konzentrat = q_feed_start_lh - total_permeat
+p_vor_drossel = p_effektiv_start - 0.2 # Spacer Verlust initial
+
+if anzahl_membranen == 1:
+    r_out = berechne_hydraulischen_widerstand(cfg_sammel['d_out'], cfg_sammel['l_out'], [], cfg_sammel['b_out'])
+    p_verlust_out = (r_out * ((total_konzentrat / 1000) / 3600)**2) / 100000
+    p_vor_drossel -= p_verlust_out
+else:
+    # Widerstand der Einzelzweige (M1 vs Mn)
+    r_m1 = berechne_hydraulischen_widerstand(cfg_sammel['d_m1'], cfg_sammel['l_m1'], [], cfg_sammel['b_m1'], zeta_extra=0)
+    r_mn = berechne_hydraulischen_widerstand(cfg_sammel['d_mn'], cfg_sammel['l_mn'], [], cfg_sammel['b_mn'], zeta_extra=1.3)
+    
+    # Vereinfachte Annahme für Druckverlust vor dem Sammelpunkt:
+    # Wir nehmen den Pfad der "ungünstigsten" Membrane (Mn mit Umlenkung)
+    q_c_einzel = total_konzentrat / anzahl_membranen
+    p_verlust_abzweig = (r_mn * ((q_c_einzel / 1000) / 3600)**2) / 100000
+    
+    # Gemeinsames Sammelrohr
+    r_out = berechne_hydraulischen_widerstand(cfg_sammel['d_out'], cfg_sammel['l_out'], [], cfg_sammel['b_out'])
+    p_verlust_out = (r_out * ((total_konzentrat / 1000) / 3600)**2) / 100000
+    
+    p_vor_drossel -= (p_verlust_abzweig + p_verlust_out)
+
+abzubauender_druck = max(0.1, p_vor_drossel - 0.5) 
+empfohlene_drossel_mm = empfehle_drossel_durchmesser(total_konzentrat, abzubauender_druck)
+
+# --- UI OUTPUT ---
+st.subheader("📊 Anlagen-Performance")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Gesamt Permeat", f"{total_permeat:.1f} l/h")
+c2.metric("Gesamt Konzentrat", f"{total_konzentrat:.1f} l/h")
+c3.metric("Feed Bedarf", f"{q_feed_start_lh:.1f} l/h")
+c4.metric("Ist-Ausbeute", f"{(total_permeat / q_feed_start_lh * 100):.1f} %" if q_feed_start_lh > 0 else "0 %")
+
+st.divider()
+st.subheader("🛑 Konzentrat-Abgang & Drossel")
+v1, v2, v3 = st.columns(3)
+v1.metric("Druck vor Drossel", f"{p_vor_drossel:.2f} bar")
+v2.metric("Druckabbau Wunsch", f"{abzubauender_druck:.2f} bar")
+v3.metric("Empfohlene Drossel", f"Ø {empfohlene_drossel_mm:.2f} mm")
