@@ -6,7 +6,7 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
                        m_test_druck, m_rueckhalt, tds_feed, temp, p_system,
                        r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, 
                        leitungen_konz, leitung_out,
-                       p_leitungen_konz, p_leitung_out):
+                       p_leitungen_konz, p_leitung_out, p_schlauch_out):
     
     tcf = berechne_tcf(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck)
@@ -27,15 +27,23 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
     p_verlust_netzwerk = (r_netzwerk * q_ms**2) / 100000 if hat_t_stueck else 0
     p_effektiv_start = p_system - p_verlust_druck_haupt - p_verlust_netzwerk
 
-    # 3. Permeat-Widerstände vorab berechnen
+    # 3. Permeat-Widerstände & Hydrostatischer Druck vorab berechnen
     r_p_out = berechne_hydraulischen_widerstand(p_leitung_out['d'], p_leitung_out['l'], [], p_leitung_out['b'])
+    r_p_schlauch = berechne_hydraulischen_widerstand(p_schlauch_out['d'], p_schlauch_out['l'], [], 0)
+    
     r_p_branches = []
     if anzahl_membranen > 1:
         for p_cfg in p_leitungen_konz:
             r_p_branches.append(berechne_hydraulischen_widerstand(p_cfg['d'], p_cfg['l'], [], p_cfg['b']))
     
-    # Gegendruck der Hauptleitung (Schätzwert basierend auf q_p_approx)
-    p_back_main = (r_p_out * ((q_p_approx / 1000) / 3600)**2) / 100000
+    # Hydrostatischer Druck durch Höhendifferenz (P = rho * g * h)
+    # rho(Wasser) = 1000 kg/m^3, g = 9.81 m/s^2, Umrechnung in bar (/100000)
+    p_back_height = (p_schlauch_out['h'] * 1000 * 9.81) / 100000
+    
+    # Gegendruck der Hauptleitung = Reibung (Sammelrohr + Schlauch) + Hydrostatische Säule
+    q_ms_p = (q_p_approx / 1000) / 3600
+    p_back_main_friction = ((r_p_out + r_p_schlauch) * q_ms_p**2) / 100000
+    p_back_main = p_back_main_friction + p_back_height
 
     total_permeat = 0
     total_permeat_salzfracht = 0
@@ -65,7 +73,7 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
             tds_p_target = tds_wall * (1 - m_rueckhalt)
             tds_p = tds_p * 0.5 + tds_p_target * 0.5
             
-            # --- NEU: Permeat Gegendruck ---
+            # Permeat Gegendruck Zweig
             p_back_branch = (r_p_branch * ((q_p / 1000) / 3600)**2) / 100000
             p_back_total = p_back_main + p_back_branch
             
