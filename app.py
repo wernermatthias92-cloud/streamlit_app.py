@@ -34,7 +34,15 @@ with st.sidebar:
     
     with st.expander("2. Membrane & System", expanded=False):
         m_flaeche = st.number_input("Filterfläche (m²)", value=7.5)
-        m_test_flow = st.number_input("Nennleistung (l/h)", value=568.0)
+        
+        # --- NEU: TOLERANZ / ALTERUNG ---
+        m_test_flow_datasheet = st.number_input("Nennleistung laut Datenblatt (l/h)", value=568.0)
+        m_toleranz_pct = st.number_input("Leistungs-Toleranz / Alterung (%)", min_value=-50.0, max_value=20.0, value=-5.0, step=1.0)
+        
+        # Berechnung der tatsächlichen Leistung, die an den Solver geschickt wird
+        m_test_flow_effektiv = m_test_flow_datasheet * (1.0 + (m_toleranz_pct / 100.0))
+        st.caption(f"Effektive Nennleistung für Berechnung: **{m_test_flow_effektiv:.1f} l/h**")
+        
         m_test_druck = st.number_input("Test-Druck (bar)", value=9.3)
         m_rueckhalt = st.slider("Rückhalt (%)", 90.0, 99.9, 98.0) / 100
         st.divider()
@@ -199,13 +207,13 @@ with st.sidebar:
                 "h": st.number_input("Höhendifferenz (m)", value=0.0, step=0.5, key="ps_h")
             }
 
-# --- PDF WÖRTERBUCH (Lückenlos!) ---
+# --- PDF WÖRTERBUCH (Dokumentiert die Toleranz sauber) ---
 inputs_fuer_pdf = {
     "schaltung": schaltung,
     "anzahl_membranen": anzahl_membranen,
     "ausbeute_pct": ausbeute_pct,
     "m_flaeche": m_flaeche,
-    "m_test_flow": m_test_flow,
+    "m_test_flow": f"{m_test_flow_effektiv:.1f} (inkl. {m_toleranz_pct:.0f}%)", # <- Hier wird der korrigierte Wert für das PDF übergeben
     "m_test_druck": m_test_druck,
     "m_rueckhalt": m_rueckhalt,
     "tds_feed": tds_feed,
@@ -223,12 +231,13 @@ inputs_fuer_pdf = {
 
 # --- 3. BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
-    ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
+    # WICHTIG: Wir übergeben an alle Solver nun die m_test_flow_effektiv Variable!
+    ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow_effektiv, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
     if auslegungs_modus == "Ziel-Ausbeute vorgeben":
-        ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
+        ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow_effektiv, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
     else:
-        ergebnisse = simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, pumpe_p_max, pumpe_q_max, p_zulauf, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
+        ergebnisse = simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, m_test_druck, m_rueckhalt, tds_feed, temp, pumpe_p_max, pumpe_q_max, p_zulauf, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
