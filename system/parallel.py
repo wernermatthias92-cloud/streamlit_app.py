@@ -27,23 +27,41 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
     total_permeat_salzfracht = 0
     membran_daten = []
     
-    # Der erste Konzentratstrom (für die Sammelleitung später) wird initialisiert
     q_c_first = 0 
     
     for i in range(anzahl_membranen):
-        pi = (tds_feed / 100) * 0.07
-        ndp = max(0, p_effektiv_start - pi)
-        
-        # HIER IST DIE MAGIE: Der Feed wird anhand des hydraulischen Widerstands aufgeteilt!
         f_in = q_feed_start_lh * flow_fractions[i]
         
-        q_p = m_flaeche * a_wert * ndp * tcf * 1000
+        # --- PHYSIK-UPDATE: Iterative Berechnung des mittleren osmotischen Drucks ---
+        # 1. Startwert schätzen (nur anhand der Eingangsdaten)
+        pi_inlet = (tds_feed / 100) * 0.07
+        q_p = m_flaeche * a_wert * max(0, p_effektiv_start - pi_inlet) * tcf * 1000
+        
+        # 2. Schleife zur physikalischen Feinjustierung (3 Durchläufe reichen für 99% Genauigkeit)
+        tds_p = tds_feed * (1 - m_rueckhalt)
+        for _ in range(3):
+            if q_p >= f_in: q_p = f_in * 0.99 # Verhindere, dass mehr Permeat als Feed entsteht
+            q_c_temp = f_in - q_p
+            
+            # Wie stark konzentriert sich das Wasser bei dieser Permeatmenge auf?
+            tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c_temp if q_c_temp > 0 else tds_feed
+            
+            # Mittleres Salz im Modul = (Eingang + Ausgang) / 2
+            tds_avg = (tds_feed + tds_c_temp) / 2
+            
+            # Neuer, genauerer Gegendruck durch das aufkonzentrierte Salz
+            pi_avg = (tds_avg / 100) * 0.07
+            ndp = max(0, p_effektiv_start - pi_avg)
+            
+            # Permeatwert durch den neuen Gegendruck nach unten korrigieren
+            q_p = m_flaeche * a_wert * ndp * tcf * 1000
+        
+        # Harte Sicherheitsgrenze: Eine Membran kann real nicht mehr als 95% ihres Feeds filtern
         if q_p > f_in * 0.95: q_p = f_in * 0.95
         
         q_c = f_in - q_p
         if i == 0: q_c_first = q_c
         
-        tds_p = tds_feed * (1 - m_rueckhalt)
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
         
         total_permeat += q_p
@@ -65,14 +83,12 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
     current_sammel_flow = q_c_first
     p_sammel = p_effektiv_start - 0.2
     
-    # Sammelleitungen berechnen
     for i in range(anzahl_membranen - 1):
         l_cfg = leitungen_konz[i]
         r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
         p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
         p_sammel -= (p_verlust_sammel + 0.05) 
         
-        # Konzentrat des nächsten Moduls zur Sammelleitung hinzufügen
         next_f_in = q_feed_start_lh * flow_fractions[i+1]
         current_sammel_flow += (next_f_in - membran_daten[i+1]["Permeat (l/h)"])
 
