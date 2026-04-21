@@ -28,7 +28,7 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
     
     # In Parallelschaltung bekommt jede Membran den gleichen Anteil
     f_in = q_feed_start_lh / anzahl_membranen
-    
+
     for i in range(anzahl_membranen):
         pi = (tds_feed / 100) * 0.07
         ndp = max(0, p_effektiv_start - pi)
@@ -36,6 +36,11 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         if q_p > f_in * 0.95: q_p = f_in * 0.95
         
         q_c = f_in - q_p
+        
+        # NEU: TDS Berechnung für die Parallelschaltung
+        tds_p = tds_feed * (1 - m_rueckhalt)
+        tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
+        
         total_permeat += q_p
         
         membran_daten.append({
@@ -43,9 +48,11 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
             "Eingangsdruck (bar)": round(p_effektiv_start, 2),
             "Permeat (l/h)": round(q_p, 1),
             "Konzentrat (l/h)": round(q_c, 1),
-            "Feed TDS (ppm)": round(tds_feed, 0)
+            "Feed TDS (ppm)": round(tds_feed, 0),
+            "Permeat TDS (ppm)": round(tds_p, 1),
+            "Konz. TDS (ppm)": round(tds_c, 0)
         })
-
+        
     # Sammelleitung & Mischung
     current_sammel_flow = q_c # Start mit Konzentrat Modul 1
     p_sammel = p_effektiv_start - 0.2
