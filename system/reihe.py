@@ -17,7 +17,6 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
     if ndp_start <= 0:
         return {"error": "Systemdruck zu gering für osmotischen Druck!"}
 
-    # Druckverluste Zuleitung
     q_ms = (q_feed_start_lh / 1000) / 3600
     p_verlust_saug = (r_saug * q_ms**2) / 100000 
     p_verlust_druck_haupt = (r_druck_haupt * q_ms**2) / 100000
@@ -29,6 +28,7 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
     
     membran_daten = []
     total_permeat = 0
+    total_permeat_salzfracht = 0 # Für gewichteten TDS
 
     for i in range(anzahl_membranen):
         f_in = current_feed_flow
@@ -43,7 +43,9 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         q_c = f_in - q_p
         tds_p = tds_in * (1 - m_rueckhalt)
         tds_c = ((f_in * tds_in) - (q_p * tds_p)) / q_c if q_c > 0 else tds_in
+        
         total_permeat += q_p
+        total_permeat_salzfracht += (q_p * tds_p)
 
         membran_daten.append({
             "Membran": f"Modul {i+1}",
@@ -55,7 +57,6 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
             "Konz. TDS (ppm)": round(tds_c, 0)
         })
 
-        # Übergabe an nächste Membran
         druck_nach_spacer = p_in - 0.2
         if i < anzahl_membranen - 1:
             l_cfg = leitungen_konz[i]
@@ -68,7 +69,10 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         current_feed_flow = q_c
         current_tds = tds_c
 
-    # Endleitung & Drossel
+    # Ergebnisse berechnen
+    avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
+    final_konzentrat_tds = current_tds
+
     r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
     p_verlust_out = (r_out * ((current_feed_flow / 1000) / 3600)**2) / 100000
     konzentrat_druck_vor_ventil = current_p - p_verlust_out
@@ -79,6 +83,8 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         "error": None,
         "q_feed_start_lh": q_feed_start_lh,
         "total_permeat": total_permeat,
+        "total_permeat_tds": avg_permeat_tds,
+        "final_konzentrat_tds": final_konzentrat_tds,
         "end_konzentrat_flow": current_feed_flow,
         "membran_daten": membran_daten,
         "p_verlust_saug": p_verlust_saug,
