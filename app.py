@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 
+# --- EIGENE MODULE IMPORTIEREN ---
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, r_parallel
 from system.reihe import simuliere_reihe
 from system.parallel import simuliere_parallel
@@ -10,6 +11,7 @@ from utils.pdf_export import generiere_pdf
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 
+# --- 1. SIDEBAR (Eingaben) ---
 with st.sidebar:
     with st.expander("1. Verschaltung & Aufbau", expanded=True):
         schaltung = st.selectbox("Verschaltung", ["Parallel (Aufteilung)", "In Reihe (Konzentrat -> Feed)"])
@@ -52,16 +54,22 @@ with st.sidebar:
             st.caption("Trage die Maximalwerte der Pumpenkennlinie ein.")
             pumpe_p_max = st.number_input("Max. Druck bei 0 Durchfluss (bar)", value=11.5, step=0.5)
             pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0)
-            p_system = pumpe_p_max # Platzhalter für die Variablen-Übergabe
+            p_system = pumpe_p_max # Platzhalter
 
     with st.expander("3. Rohrleitungen Zuleitung", expanded=False):
+        st.markdown("**Saugseite (Vor Pumpe)**")
+        # NEU: Der Zulaufdruck (Vordruck) aus dem Hausanschluss
+        p_zulauf = st.number_input("Zulaufdruck (z.B. Hausanschluss in bar)", value=3.0, step=0.5, key="pz")
+        
         d_saug = st.number_input("Ø Innen Saugseite (mm)", value=13.2, key="ds")
         l_saug = st.number_input("Länge (mm)", min_value=1.0, value=1000.0, step=10.0, key="ls")
         b_saug = st.number_input("Anzahl 90° Bögen", 0, 10, 0, key="bs")
         n_drossel_saug = st.number_input("Anzahl Drosseln", 0, 5, 0, key="nds")
         drosseln_saug = [st.number_input(f"Ø Drossel {i+1} (mm)", value=10.0, key=f"drs_{i}") for i in range(n_drossel_saug)]
         r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
+        
         st.divider()
+        st.markdown("**Druckseite (Nach Pumpe)**")
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=13.2)
         l_druck = st.number_input("Länge Hauptleitung (mm)", min_value=1.0, value=400.0, step=10.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
@@ -77,7 +85,7 @@ with st.sidebar:
                 st.markdown("#### Strang A")
                 ca1, ca2, ca3 = st.columns(3)
                 d_a = ca1.number_input("Ø A", value=13.2)
-                l_a = ca2.number_input("Länge A", value=10.0, min_value=1.0) # Kurzes Rohr zum Modul
+                l_a = ca2.number_input("Länge A", value=10.0, min_value=1.0) 
                 b_a = ca3.number_input("Bögen A", value=0)
                 
                 sub_a = st.checkbox("↳ A aufteilen")
@@ -186,6 +194,7 @@ inputs_fuer_pdf = {
     "tds_feed": tds_feed,
     "temp": temp,
     "p_system": p_system,
+    "p_zulauf": p_zulauf,
     "zuleitung_saug": {"d": d_saug, "l": l_saug, "b": b_saug},
     "zuleitung_druck": {"d": d_druck, "l": l_druck, "b": b_druck},
     "konz_leitungen": leitungen_konz,
@@ -195,21 +204,21 @@ inputs_fuer_pdf = {
     "perm_schlauch": p_schlauch_out
 }
 
-# --- 3. BERECHNUNG ---
+# --- 2. BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
     if auslegungs_modus == "Ziel-Ausbeute vorgeben":
         ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
     else:
-        # Hier übergeben wir p_max und q_max an die neue Funktion
-        ergebnisse = simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, pumpe_p_max, pumpe_q_max, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
+        # Hier übergeben wir p_max, q_max UND p_zulauf an den Solver!
+        ergebnisse = simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, pumpe_p_max, pumpe_q_max, p_zulauf, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
     st.stop()
 
-# --- UI MAIN WINDOW ---
+# --- 3. UI MAIN WINDOW ---
 col_title, col_btn = st.columns([4, 1])
 
 with col_title:
@@ -241,14 +250,16 @@ st.divider()
 st.subheader("🛑 Hydraulik & Drossel")
 v1, v2, v3 = st.columns(3)
 
-# Zeige den tatsächlichen Pumpendruck an, wenn wir im Digital Twin Modus sind
 if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)":
     v1.metric("Pumpendruck (Real)", f"{ergebnisse.get('realer_pumpendruck', 0):.2f} bar")
 else:
     v1.metric("Systemdruck (Statisch)", f"{p_system:.2f} bar")
     
 v2.metric("P vor Ventil", f"{ergebnisse['konzentrat_druck_verlauf']:.2f} bar")
-v3.metric("Drossel Ø", f"Ø {ergebnisse['empfohlene_drossel_mm']:.2f} mm")
 
-# Ein letzter Dummy-Kommentar für Streamlit Cache-Reset
-# v2.0
+if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)":
+    v3.metric("Drossel Ø", f"Ø {drossel_vorgabe_mm:.2f} mm")
+else:
+    v3.metric("Empfohlener Drossel Ø", f"Ø {ergebnisse['empfohlene_drossel_mm']:.2f} mm")
+    
+# Cache Busting v3.0
