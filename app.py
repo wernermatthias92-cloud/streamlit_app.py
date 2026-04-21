@@ -15,12 +15,11 @@ with st.sidebar:
     with st.expander("1. Verschaltung & Aufbau", expanded=True):
         schaltung = st.selectbox("Verschaltung", ["In Reihe (Konzentrat -> Feed)", "Parallel (Aufteilung)"])
         
-        # Dynamische Membrananzahl je nach Modus
         if schaltung == "In Reihe (Konzentrat -> Feed)":
             anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
         else:
             st.info("💡 Die Anzahl der Membranen wird automatisch anhand deiner Rohr-Abzweigungen (Sektion 3) berechnet.")
-            anzahl_membranen = 1 # Platzhalter, wird gleich dynamisch überschrieben
+            anzahl_membranen = 1 
             
         ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
     
@@ -37,7 +36,7 @@ with st.sidebar:
     with st.expander("3. Rohrleitungen Zuleitung", expanded=False):
         st.markdown("**Saugseite (Vor Pumpe)**")
         d_saug = st.number_input("Ø Innen Saugseite (mm)", value=20.0, key="ds")
-        l_saug = st.number_input("Länge (mm)", value=1000.0, key="ls")
+        l_saug = st.number_input("Länge (mm)", min_value=1.0, value=1000.0, step=10.0, key="ls")
         b_saug = st.number_input("Anzahl 90° Bögen", 0, 10, 0, key="bs")
         n_drossel_saug = st.number_input("Anzahl Drosseln", 0, 5, 0, key="nds")
         drosseln_saug = [st.number_input(f"Ø Drossel {i+1} (mm)", value=10.0, key=f"drs_{i}") for i in range(n_drossel_saug)]
@@ -46,7 +45,7 @@ with st.sidebar:
         st.divider()
         st.markdown("**Druckseite Hauptleitung**")
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=15.0)
-        l_druck = st.number_input("Länge Hauptleitung (mm)", value=2000.0)
+        l_druck = st.number_input("Länge Hauptleitung (mm)", min_value=1.0, value=2000.0, step=10.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
         r_druck_haupt = berechne_hydraulischen_widerstand(d_druck, l_druck, [], b_druck)
         
@@ -61,17 +60,23 @@ with st.sidebar:
                 # --- STRANG A ---
                 st.markdown("#### Strang A")
                 ca1, ca2, ca3 = st.columns(3)
-                d_a, l_a, b_a = ca1.number_input("Ø Strang A", 15.0), ca2.number_input("Länge A", 1000.0), ca3.number_input("Bögen A", 0)
+                d_a = ca1.number_input("Ø Strang A", 15.0)
+                l_a = ca2.number_input("Länge A (mm)", min_value=1.0, value=1000.0, step=10.0)
+                b_a = ca3.number_input("Bögen A", 0, 10, 0)
                 
                 sub_a = st.checkbox("↳ Strang A in A1 & A2 aufteilen")
                 if sub_a:
                     st.caption("Unterstrang A1")
                     cA1_1, cA1_2, cA1_3 = st.columns(3)
-                    d_a1, l_a1, b_a1 = cA1_1.number_input("Ø A1", 10.0), cA1_2.number_input("Länge A1", 500.0), cA1_3.number_input("Bögen A1", 0)
+                    d_a1 = cA1_1.number_input("Ø A1", 10.0)
+                    l_a1 = cA1_2.number_input("Länge A1 (mm)", min_value=1.0, value=500.0, step=10.0)
+                    b_a1 = cA1_3.number_input("Bögen A1", 0, 10, 0)
                     
                     st.caption("Unterstrang A2")
                     cA2_1, cA2_2, cA2_3 = st.columns(3)
-                    d_a2, l_a2, b_a2 = cA2_1.number_input("Ø A2", 10.0), cA2_2.number_input("Länge A2", 500.0), cA2_3.number_input("Bögen A2", 0)
+                    d_a2 = cA2_1.number_input("Ø A2", 10.0)
+                    l_a2 = cA2_2.number_input("Länge A2 (mm)", min_value=1.0, value=500.0, step=10.0)
+                    b_a2 = cA2_3.number_input("Bögen A2", 0, 10, 0)
                     
                     r_a1 = berechne_hydraulischen_widerstand(d_a1, l_a1, [], b_a1)
                     r_a2 = berechne_hydraulischen_widerstand(d_a2, l_a2, [], b_a2)
@@ -82,17 +87,23 @@ with st.sidebar:
                 # --- STRANG B ---
                 st.markdown("#### Strang B")
                 cb1, cb2, cb3 = st.columns(3)
-                d_b, l_b, b_b = cb1.number_input("Ø Strang B", 15.0), cb2.number_input("Länge B", 1000.0), cb3.number_input("Bögen B", 0)
+                d_b = cb1.number_input("Ø Strang B", 15.0)
+                l_b = cb2.number_input("Länge B (mm)", min_value=1.0, value=1000.0, step=10.0)
+                b_b = cb3.number_input("Bögen B", 0, 10, 0)
                 
                 sub_b = st.checkbox("↳ Strang B in B1 & B2 aufteilen")
                 if sub_b:
                     st.caption("Unterstrang B1")
                     cB1_1, cB1_2, cB1_3 = st.columns(3)
-                    d_b1, l_b1, b_b1 = cB1_1.number_input("Ø B1", 10.0), cB1_2.number_input("Länge B1", 500.0), cB1_3.number_input("Bögen B1", 0)
+                    d_b1 = cB1_1.number_input("Ø B1", 10.0)
+                    l_b1 = cB1_2.number_input("Länge B1 (mm)", min_value=1.0, value=500.0, step=10.0)
+                    b_b1 = cB1_3.number_input("Bögen B1", 0, 10, 0)
                     
                     st.caption("Unterstrang B2")
                     cB2_1, cB2_2, cB2_3 = st.columns(3)
-                    d_b2, l_b2, b_b2 = cB2_1.number_input("Ø B2", 10.0), cB2_2.number_input("Länge B2", 500.0), cB2_3.number_input("Bögen B2", 0)
+                    d_b2 = cB2_1.number_input("Ø B2", 10.0)
+                    l_b2 = cB2_2.number_input("Länge B2 (mm)", min_value=1.0, value=500.0, step=10.0)
+                    b_b2 = cB2_3.number_input("Bögen B2", 0, 10, 0)
                     
                     r_b1 = berechne_hydraulischen_widerstand(d_b1, l_b1, [], b_b1)
                     r_b2 = berechne_hydraulischen_widerstand(d_b2, l_b2, [], b_b2)
@@ -137,19 +148,19 @@ with st.sidebar:
             for i in range(anzahl_membranen - 1):
                 leitungen_konz.append({
                     "d": st.number_input(f"Ø Innen {i+1}->{i+2}", value=15.0, key=f"d_k_{i}"),
-                    "l": st.number_input(f"Länge {i+1}->{i+2}", value=500.0, key=f"l_k_{i}"),
+                    "l": st.number_input(f"Länge {i+1}->{i+2} (mm)", min_value=1.0, value=500.0, step=10.0, key=f"l_k_{i}"),
                     "b": st.number_input(f"Bögen {i+1}->{i+2}", 0, 10, 2, key=f"b_k_{i}")
                 })
             leitung_out = {
                 "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out"),
-                "l": st.number_input("Länge Auslass (mm)", value=1000.0, key="l_out"),
+                "l": st.number_input("Länge Auslass (mm)", min_value=1.0, value=1000.0, step=10.0, key="l_out"),
                 "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
             }
         else:
             for i in range(anzahl_membranen - 1):
                 leitungen_konz.append({
                     "d": st.number_input(f"Ø Sammel {i+1}", value=20.0, key=f"d_p_{i}"),
-                    "l": st.number_input(f"Länge Sammel {i+1}", value=300.0, key=f"l_p_{i}"),
+                    "l": st.number_input(f"Länge Sammel {i+1} (mm)", min_value=1.0, value=300.0, step=10.0, key=f"l_p_{i}"),
                     "b": st.number_input(f"Bögen Sammel {i+1}", 0, 10, 0, key=f"b_p_{i}")
                 })
 
