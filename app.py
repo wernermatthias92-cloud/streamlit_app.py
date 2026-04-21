@@ -3,7 +3,6 @@ import pandas as pd
 import math
 
 # --- EIGENE MODULE IMPORTIEREN ---
-# Wir importieren die Hydraulik-Grundfunktionen und die neuen Simulations-Module
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, r_parallel
 from system.reihe import simuliere_reihe
 from system.parallel import simuliere_parallel
@@ -11,38 +10,43 @@ from system.parallel import simuliere_parallel
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk")
 
-# --- SIDEBAR (Benutzereingaben) ---
+# --- SIDEBAR (Benutzereingaben als aufklappbare Menüs) ---
 with st.sidebar:
-    st.header("1. Verschaltung & Aufbau")
-    schaltung = st.selectbox("Verschaltung", ["In Reihe (Konzentrat -> Feed)", "Parallel (Aufteilung)"])
-    anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
-    ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
     
-    st.header("2. Membrane & System")
-    with st.expander("Details anpassen"):
+    # KATEGORIE 1 (Standardmäßig geöffnet)
+    with st.expander("1. Verschaltung & Aufbau", expanded=True):
+        schaltung = st.selectbox("Verschaltung", ["In Reihe (Konzentrat -> Feed)", "Parallel (Aufteilung)"])
+        anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
+        ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
+    
+    # KATEGORIE 2
+    with st.expander("2. Membrane & System", expanded=False):
+        st.markdown("**Membran-Spezifikationen**")
         m_flaeche = st.number_input("Filterfläche (m²)", value=7.5)
         m_test_flow = st.number_input("Nennleistung (l/h)", value=380.0)
         m_test_druck = st.number_input("Test-Druck (bar)", value=15.5)
         m_rueckhalt = st.slider("Rückhalt (%)", 90.0, 99.9, 99.2) / 100
-        
-    tds_feed = st.number_input("Feed TDS (ppm)", value=500)
-    temp = st.slider("Temperatur (°C)", 10, 50, 15)
-    p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=15.0)
+        st.divider()
+        st.markdown("**Feed-Wasser & Druck**")
+        tds_feed = st.number_input("Feed TDS (ppm)", value=500)
+        temp = st.slider("Temperatur (°C)", 10, 50, 15)
+        p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=15.0)
 
-    st.header("3. Rohrleitungen Zuleitung")
-    
-    # --- MENÜ 1: Saugseite (Vor der Pumpe) ---
-    with st.expander("Zuleitung ZUR Pumpe (Saugseite)", expanded=False):
+    # KATEGORIE 3
+    with st.expander("3. Rohrleitungen Zuleitung", expanded=False):
+        # Saugseite
+        st.markdown("**Zuleitung ZUR Pumpe (Saugseite)**")
         d_saug = st.number_input("Ø Innen Saugseite (mm)", value=20.0, key="ds")
         l_saug = st.number_input("Länge (mm)", value=1000.0, key="ls")
         b_saug = st.number_input("Anzahl 90° Bögen", 0, 10, 0, key="bs")
         n_drossel_saug = st.number_input("Anzahl Drosseln", 0, 5, 0, key="nds")
         drosseln_saug = [st.number_input(f"Ø Drossel {i+1} (mm)", value=10.0, key=f"drs_{i}") for i in range(n_drossel_saug)]
-    
-    r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
+        r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
 
-    # --- MENÜ 2: Druckseite (Nach der Pumpe) ---
-    with st.expander("Zuleitung NACH Pumpe (Druckseite)", expanded=False):
+        st.divider()
+        
+        # Druckseite
+        st.markdown("**Zuleitung NACH Pumpe (Druckseite)**")
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=15.0)
         l_druck = st.number_input("Länge Hauptleitung (mm)", value=2000.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
@@ -51,7 +55,6 @@ with st.sidebar:
         r_netzwerk = 0
         hat_t_stueck = False
         
-        # Die T-Stück Logik ist nur für die parallele Aufteilung relevant
         if schaltung == "Parallel (Aufteilung)":
             hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen")
             if hat_t_stueck:
@@ -85,32 +88,38 @@ with st.sidebar:
 
                 r_netzwerk = r_parallel(r_a_tot, r_b_tot)
 
-    st.header("4. Konzentrat- & Zwischenleitungen")
-    leitungen_konz = []
-    leitung_out = None
-    
-    if schaltung == "In Reihe (Konzentrat -> Feed)":
-        for i in range(anzahl_membranen - 1):
-            with st.expander(f"Zwischenleitung: Membran {i+1} -> {i+2}"):
-               leitungen_konz.append({
-                   "d": st.number_input(f"Ø Innen (mm)", value=15.0, key=f"d_k_{i}"),
+    # KATEGORIE 4
+    with st.expander("4. Konzentrat- & Zwischenleitungen", expanded=False):
+        leitungen_konz = []
+        leitung_out = None
+        
+        if schaltung == "In Reihe (Konzentrat -> Feed)":
+            for i in range(anzahl_membranen - 1):
+                st.markdown(f"**Zwischenleitung: Membran {i+1} -> {i+2}**")
+                leitungen_konz.append({
+                    "d": st.number_input(f"Ø Innen (mm)", value=15.0, key=f"d_k_{i}"),
                     "l": st.number_input(f"Länge (mm)", value=500.0, key=f"l_k_{i}"),
                     "b": st.number_input(f"Bögen", 0, 10, 2, key=f"b_k_{i}")
                 })
-        with st.expander(f"Konzentrat-Auslassleitung (nach Membran {anzahl_membranen})", expanded=True):
-           leitung_out = {
+                st.divider()
+                
+            st.markdown(f"**Konzentrat-Auslass (nach Membran {anzahl_membranen})**")
+            st.caption("Führt zur finalen Drossel/Regelventil.")
+            leitung_out = {
                 "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out"),
                 "l": st.number_input("Länge Auslass (mm)", value=1000.0, key="l_out"),
                 "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
             }
-    else:
-        for i in range(anzahl_membranen - 1):
-            with st.expander(f"Sammelleitung T-Stück {i+1} (Mischung)"):
-               leitungen_konz.append({
-                   "d": st.number_input(f"Ø Innen (mm)", value=20.0, key=f"d_p_{i}"),
+        else:
+            for i in range(anzahl_membranen - 1):
+                st.markdown(f"**Sammelleitung T-Stück {i+1} (Mischung)**")
+                leitungen_konz.append({
+                    "d": st.number_input(f"Ø Innen (mm)", value=20.0, key=f"d_p_{i}"),
                     "l": st.number_input(f"Länge (mm)", value=300.0, key=f"l_p_{i}"),
                     "b": st.number_input(f"Bögen", 0, 10, 0, key=f"b_p_{i}")
                 })
+                if i < anzahl_membranen - 2: st.divider()
+
 
 # --- BERECHNUNG (Routing zu den Modulen) ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
