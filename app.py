@@ -13,7 +13,8 @@ st.title("💧 RO-Anlagen Planer & Hydraulik-Netzwerk")
 # --- SIDEBAR ---
 with st.sidebar:
     with st.expander("1. Verschaltung & Aufbau", expanded=True):
-        schaltung = st.selectbox("Verschaltung", ["In Reihe (Konzentrat -> Feed)", "Parallel (Aufteilung)"])
+        # Reihenfolge getauscht: Parallel ist nun das erste Element und damit die Vorauswahl
+        schaltung = st.selectbox("Verschaltung", ["Parallel (Aufteilung)", "In Reihe (Konzentrat -> Feed)"])
         
         if schaltung == "In Reihe (Konzentrat -> Feed)":
             anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
@@ -157,6 +158,7 @@ with st.sidebar:
                 "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
             }
         else:
+            # Stern-Topologie Logik für Parallel
             if anzahl_membranen == 1:
                 st.markdown("**Konzentratleitung bis Drossel**")
                 leitung_out = {
