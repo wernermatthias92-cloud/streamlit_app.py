@@ -130,7 +130,7 @@ with st.sidebar:
             }
 
     with st.expander("5. Permeatleitungen", expanded=False):
-        p_leitungen_konz, p_leitung_out = [], None
+        p_leitungen_konz, p_leitung_out, p_schlauch_out = [], None, None
         if schaltung == "Parallel (Aufteilung)":
             if anzahl_membranen == 1:
                 st.markdown("**Permeatleitung bis Anlagenausgang**")
@@ -139,7 +139,16 @@ with st.sidebar:
                 for i in range(anzahl_membranen):
                     p_leitungen_konz.append({"d": st.number_input(f"Ø {membran_namen[i]}->T (P)", value=10.0, key=f"pd_{i}"), "l": st.number_input(f"Länge {membran_namen[i]} (P)", value=500.0, min_value=1.0, key=f"pl_{i}"), "b": st.number_input(f"Bögen {membran_namen[i]} (P)", value=0, key=f"pb_{i}")})
                 st.divider()
+                st.markdown("**Sammelrohr Permeat**")
                 p_leitung_out = {"d": st.number_input("Ø Sammelrohr (P)", value=15.0, key="pt_d"), "l": st.number_input("Länge Sammel (P)", value=2000.0, min_value=1.0, key="pt_l"), "b": st.number_input("Bögen Sammel (P)", value=0, key="pt_b")}
+            
+            st.divider()
+            st.markdown("**Auslassschlauch (inkl. Höhenunterschied)**")
+            p_schlauch_out = {
+                "d": st.number_input("Ø Schlauch (mm)", value=10.0, key="ps_d"),
+                "l": st.number_input("Länge Schlauch (mm)", value=3000.0, min_value=1.0, step=10.0, key="ps_l"),
+                "h": st.number_input("Höhendifferenz (m)", value=0.0, step=0.5, key="ps_h")
+            }
 
 # --- KOMPLETTE DATEN FÜR PDF ---
 inputs_fuer_pdf = {
@@ -158,14 +167,15 @@ inputs_fuer_pdf = {
     "konz_leitungen": leitungen_konz,
     "konz_out": leitung_out,
     "perm_leitungen": p_leitungen_konz,
-    "perm_out": p_leitung_out
+    "perm_out": p_leitung_out,
+    "perm_schlauch": p_schlauch_out
 }
 
 # --- BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
-    ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out)
+    ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
