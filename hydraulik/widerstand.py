@@ -1,3 +1,5 @@
+import math
+
 def berechne_hydraulischen_widerstand(d_inner_mm, laenge_mm, drosseln_liste, anzahl_90_grad):
 
     if d_inner_mm <= 0: return 1e12
