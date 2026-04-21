@@ -2,16 +2,13 @@ import streamlit as st
 import pandas as pd
 import math
 
-# --- EIGENE MODULE IMPORTIEREN ---
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, r_parallel
 from system.reihe import simuliere_reihe
 from system.parallel import simuliere_parallel
-# HIER IST DER NEUE IMPORT FÜR DAS PDF:
 from utils.pdf_export import generiere_pdf
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 
-# --- 1. SIDEBAR (Eingaben sammeln) ---
 with st.sidebar:
     with st.expander("1. Verschaltung & Aufbau", expanded=True):
         schaltung = st.selectbox("Verschaltung", ["Parallel (Aufteilung)", "In Reihe (Konzentrat -> Feed)"])
@@ -144,7 +141,7 @@ with st.sidebar:
                 st.divider()
                 p_leitung_out = {"d": st.number_input("Ø Sammelrohr (P)", value=15.0, key="pt_d"), "l": st.number_input("Länge Sammel (P)", value=2000.0, min_value=1.0, key="pt_l"), "b": st.number_input("Bögen Sammel (P)", value=0, key="pt_b")}
 
-# Wir verpacken alle Inputs in ein Dictionary, um es sauber an den PDF-Generator zu übergeben
+# --- KOMPLETTE DATEN FÜR PDF ---
 inputs_fuer_pdf = {
     "schaltung": schaltung,
     "anzahl_membranen": anzahl_membranen,
@@ -155,10 +152,16 @@ inputs_fuer_pdf = {
     "m_rueckhalt": m_rueckhalt,
     "tds_feed": tds_feed,
     "temp": temp,
-    "p_system": p_system
+    "p_system": p_system,
+    "zuleitung_saug": {"d": d_saug, "l": l_saug, "b": b_saug},
+    "zuleitung_druck": {"d": d_druck, "l": l_druck, "b": b_druck},
+    "konz_leitungen": leitungen_konz,
+    "konz_out": leitung_out,
+    "perm_leitungen": p_leitungen_konz,
+    "perm_out": p_leitung_out
 }
 
-# --- 2. BERECHNUNG (Muss VOR dem Download-Button passieren) ---
+# --- BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
@@ -168,18 +171,15 @@ if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
     st.stop()
 
-
-# --- 3. UI MAIN WINDOW (Titel + Button + Dashboard) ---
-# Hier platzieren wir den Button rechts neben die Überschrift
+# --- UI MAIN WINDOW ---
 col_title, col_btn = st.columns([4, 1])
 
 with col_title:
     st.title("💧 RO-Anlagen Planer")
 
 with col_btn:
-    # Generiere die PDF Daten im Hintergrund
     pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
-    st.write("") # Abstandhalter für sauberes Layout
+    st.write("") 
     st.write("")
     st.download_button(
         label="📄 PDF Protokoll Export",
