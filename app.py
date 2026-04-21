@@ -5,6 +5,7 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, r_parallel
 from system.reihe import simuliere_reihe
 from system.parallel import simuliere_parallel
+from system.parallel_drossel import simuliere_parallel_drossel  # NEUER IMPORT!
 from utils.pdf_export import generiere_pdf
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
@@ -12,12 +13,26 @@ st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 with st.sidebar:
     with st.expander("1. Verschaltung & Aufbau", expanded=True):
         schaltung = st.selectbox("Verschaltung", ["Parallel (Aufteilung)", "In Reihe (Konzentrat -> Feed)"])
+        
         if schaltung == "In Reihe (Konzentrat -> Feed)":
             anzahl_membranen = st.number_input("Anzahl Membranen", 1, 10, 2)
+            ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
+            auslegungs_modus = "Ziel-Ausbeute" # Bei Reihe belassen wir es vorerst bei Ausbeute
+            drossel_vorgabe_mm = 0
+            
         else:
             st.info("💡 Membran-Anzahl wird dynamisch aus Sektion 3 berechnet.")
             anzahl_membranen = 1 
-        ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
+            
+            # --- NEUER AUSWAHLSCHALTER ---
+            auslegungs_modus = st.radio("Auslegungs-Modus", ["Ziel-Ausbeute vorgeben", "Drossel-Ø vorgeben (Digital Twin)"])
+            
+            if auslegungs_modus == "Ziel-Ausbeute vorgeben":
+                ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
+                drossel_vorgabe_mm = 0
+            else:
+                drossel_vorgabe_mm = st.number_input("Fester Drossel-Ø (mm)", min_value=0.1, value=5.0, step=0.1)
+                ausbeute_pct = 0
     
     with st.expander("2. Membrane & System", expanded=False):
         m_flaeche = st.number_input("Filterfläche (m²)", value=7.5)
@@ -150,7 +165,6 @@ with st.sidebar:
                 "h": st.number_input("Höhendifferenz (m)", value=0.0, step=0.5, key="ps_h")
             }
 
-# --- KOMPLETTE DATEN FÜR PDF ---
 inputs_fuer_pdf = {
     "schaltung": schaltung,
     "anzahl_membranen": anzahl_membranen,
@@ -171,11 +185,15 @@ inputs_fuer_pdf = {
     "perm_schlauch": p_schlauch_out
 }
 
-# --- BERECHNUNG ---
+# --- 3. BERECHNUNG (Routing Logic erweitert) ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
-    ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
+    # HIER ist die neue Weiche für den Solver!
+    if auslegungs_modus == "Ziel-Ausbeute vorgeben":
+        ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
+    else:
+        ergebnisse = simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out, p_schlauch_out)
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
