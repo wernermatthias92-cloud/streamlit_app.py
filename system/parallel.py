@@ -37,10 +37,13 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
         pi_inlet = (tds_feed / 100) * 0.07
         q_p = m_flaeche * a_wert * max(0, p_effektiv_start - pi_inlet) * tcf * 1000
         
-        # 2. Schleife zur physikalischen Feinjustierung (3 Durchläufe reichen für 99% Genauigkeit)
+        # 2. Schleife zur physikalischen Feinjustierung (mit Dämpfung gegen Oszillation)
         tds_p = tds_feed * (1 - m_rueckhalt)
-        for _ in range(3):
-            if q_p >= f_in: q_p = f_in * 0.99 # Verhindere, dass mehr Permeat als Feed entsteht
+        for _ in range(10): # 10 Durchläufe für sehr sanfte, präzise Annäherung
+            # Sicherheitsgrenze: Eine Membran kann real max 90% ihres Feeds pro Durchlauf filtern
+            if q_p > f_in * 0.90: q_p = f_in * 0.90 
+            if q_p < 0: q_p = 0
+            
             q_c_temp = f_in - q_p
             
             # Wie stark konzentriert sich das Wasser bei dieser Permeatmenge auf?
@@ -53,10 +56,14 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
             pi_avg = (tds_avg / 100) * 0.07
             ndp = max(0, p_effektiv_start - pi_avg)
             
-            # Permeatwert durch den neuen Gegendruck nach unten korrigieren
-            q_p = m_flaeche * a_wert * ndp * tcf * 1000
-        
-        # Harte Sicherheitsgrenze: Eine Membran kann real nicht mehr als 95% ihres Feeds filtern
+            # Berechne das theoretische Ziel-Permeat
+            q_p_target = m_flaeche * a_wert * ndp * tcf * 1000
+            
+            # DÄMPFUNG: Wir springen nicht sofort zum Zielwert, sondern nähern uns zu 50% an.
+            # Das verhindert das Aufschaukeln der Berechnung bei extremen Werten.
+            q_p = q_p * 0.5 + q_p_target * 0.5
+            
+        # Abschließende harte Grenze für die Anzeige
         if q_p > f_in * 0.95: q_p = f_in * 0.95
         
         q_c = f_in - q_p
