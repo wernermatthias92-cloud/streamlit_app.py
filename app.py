@@ -41,6 +41,7 @@ with st.sidebar:
         l_druck = st.number_input("Länge Hauptleitung (mm)", min_value=1.0, value=2000.0, step=10.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
         r_druck_haupt = berechne_hydraulischen_widerstand(d_druck, l_druck, [], b_druck)
+        
         r_netzwerk = 0
         hat_t_stueck, sub_a, sub_b = False, False, False
         flow_fractions, membran_namen = [1.0], ["Modul 1 (Haupt)"]
@@ -49,25 +50,55 @@ with st.sidebar:
             hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen")
             if hat_t_stueck:
                 st.markdown("#### Strang A")
-                d_a, l_a, b_a = st.number_input("Ø A", 15.0), st.number_input("Länge A", 1000.0, min_value=1.0), st.number_input("Bögen A", 0)
+                ca1, ca2, ca3 = st.columns(3)
+                d_a = ca1.number_input("Ø A", value=15.0)
+                l_a = ca2.number_input("Länge A", value=1000.0, min_value=1.0)
+                b_a = ca3.number_input("Bögen A", value=0)
+                
                 sub_a = st.checkbox("↳ A aufteilen")
                 r_a_sub = 0
                 if sub_a:
-                    r_a1 = berechne_hydraulischen_widerstand(st.number_input("Ø A1", 10.0), st.number_input("Länge A1", 500.0, min_value=1.0), [], st.number_input("Bögen A1", 0))
-                    r_a2 = berechne_hydraulischen_widerstand(st.number_input("Ø A2", 10.0), st.number_input("Länge A2", 500.0, min_value=1.0), [], st.number_input("Bögen A2", 0))
+                    cA1_1, cA1_2, cA1_3 = st.columns(3)
+                    d_a1 = cA1_1.number_input("Ø A1", value=10.0)
+                    l_a1 = cA1_2.number_input("Länge A1", value=500.0, min_value=1.0)
+                    b_a1 = cA1_3.number_input("Bögen A1", value=0)
+                    
+                    cA2_1, cA2_2, cA2_3 = st.columns(3)
+                    d_a2 = cA2_1.number_input("Ø A2", value=10.0)
+                    l_a2 = cA2_2.number_input("Länge A2", value=500.0, min_value=1.0)
+                    b_a2 = cA2_3.number_input("Bögen A2", value=0)
+                    
+                    r_a1 = berechne_hydraulischen_widerstand(d_a1, l_a1, [], b_a1)
+                    r_a2 = berechne_hydraulischen_widerstand(d_a2, l_a2, [], b_a2)
                     r_a_sub = r_parallel(r_a1, r_a2)
                 r_a_tot = berechne_hydraulischen_widerstand(d_a, l_a, [], b_a) + r_a_sub
+                
                 st.markdown("#### Strang B")
-                d_b, l_b, b_b = st.number_input("Ø B", 15.0), st.number_input("Länge B", 1000.0, min_value=1.0), st.number_input("Bögen B", 0)
+                cb1, cb2, cb3 = st.columns(3)
+                d_b = cb1.number_input("Ø B", value=15.0)
+                l_b = cb2.number_input("Länge B", value=1000.0, min_value=1.0)
+                b_b = cb3.number_input("Bögen B", value=0)
+                
                 sub_b = st.checkbox("↳ B aufteilen")
                 r_b_sub = 0
                 if sub_b:
-                    r_b1 = berechne_hydraulischen_widerstand(st.number_input("Ø B1", 10.0), st.number_input("Länge B1", 500.0, min_value=1.0), [], st.number_input("Bögen B1", 0))
-                    r_b2 = berechne_hydraulischen_widerstand(st.number_input("Ø B2", 10.0), st.number_input("Länge B2", 500.0, min_value=1.0), [], st.number_input("Bögen B2", 0))
+                    cB1_1, cB1_2, cB1_3 = st.columns(3)
+                    d_b1 = cB1_1.number_input("Ø B1", value=10.0)
+                    l_b1 = cB1_2.number_input("Länge B1", value=500.0, min_value=1.0)
+                    b_b1 = cB1_3.number_input("Bögen B1", value=0)
+                    
+                    cB2_1, cB2_2, cB2_3 = st.columns(3)
+                    d_b2 = cB2_1.number_input("Ø B2", value=10.0)
+                    l_b2 = cB2_2.number_input("Länge B2", value=500.0, min_value=1.0)
+                    b_b2 = cB2_3.number_input("Bögen B2", value=0)
+                    
+                    r_b1 = berechne_hydraulischen_widerstand(d_b1, l_b1, [], b_b1)
+                    r_b2 = berechne_hydraulischen_widerstand(d_b2, l_b2, [], b_b2)
                     r_b_sub = r_parallel(r_b1, r_b2)
                 r_b_tot = berechne_hydraulischen_widerstand(d_b, l_b, [], b_b) + r_b_sub
+                
                 r_netzwerk = r_parallel(r_a_tot, r_b_tot)
-                # Mapping (vereinfacht für UI-Platz)
+                
                 pct_a = math.sqrt(r_b_tot)/(math.sqrt(r_a_tot)+math.sqrt(r_b_tot)) if (r_a_tot+r_b_tot)>0 else 0.5
                 if sub_a and sub_b: flow_fractions, membran_namen = [pct_a*0.5, pct_a*0.5, (1-pct_a)*0.5, (1-pct_a)*0.5], ["A1","A2","B1","B2"]
                 elif sub_a: flow_fractions, membran_namen = [pct_a*0.5, pct_a*0.5, 1-pct_a], ["A1","A2","B"]
@@ -79,27 +110,40 @@ with st.sidebar:
         leitungen_konz, leitung_out = [], None
         if schaltung == "Parallel (Aufteilung)":
             if anzahl_membranen == 1:
-                leitung_out = {"d": st.number_input("Ø Auslass (mm)", 15.0), "l": st.number_input("Länge Auslass", 1000.0, min_value=1.0), "b": st.number_input("Bögen Auslass", 2)}
+                leitung_out = {"d": st.number_input("Ø Auslass (mm)", value=15.0, key="ko_d"), "l": st.number_input("Länge Auslass", value=1000.0, min_value=1.0, key="ko_l"), "b": st.number_input("Bögen Auslass", value=2, key="ko_b")}
             else:
                 for i in range(anzahl_membranen):
-                    leitungen_konz.append({"d": st.number_input(f"Ø {membran_namen[i]}->T", 15.0), "l": st.number_input(f"Länge {membran_namen[i]}", 500.0, min_value=1.0), "b": st.number_input(f"Bögen {membran_namen[i]}", 0)})
-                leitung_out = {"d": st.number_input("Ø T->Drossel", 20.0), "l": st.number_input("Länge T->Drossel", 1000.0, min_value=1.0), "b": st.number_input("Bögen T->Drossel", 2)}
+                    leitungen_konz.append({"d": st.number_input(f"Ø {membran_namen[i]}->T", value=15.0, key=f"ki_d_{i}"), "l": st.number_input(f"Länge {membran_namen[i]}", value=500.0, min_value=1.0, key=f"ki_l_{i}"), "b": st.number_input(f"Bögen {membran_namen[i]}", value=0, key=f"ki_b_{i}")})
+                st.divider()
+                leitung_out = {"d": st.number_input("Ø T->Drossel", value=20.0, key="kt_d"), "l": st.number_input("Länge T->Drossel", value=1000.0, min_value=1.0, key="kt_l"), "b": st.number_input("Bögen T->Drossel", value=2, key="kt_b")}
+        else:
+            for i in range(anzahl_membranen - 1):
+                leitungen_konz.append({
+                    "d": st.number_input(f"Ø Innen {i+1}->{i+2}", value=15.0, key=f"d_k_{i}"),
+                    "l": st.number_input(f"Länge {i+1}->{i+2} (mm)", min_value=1.0, value=500.0, step=10.0, key=f"l_k_{i}"),
+                    "b": st.number_input(f"Bögen {i+1}->{i+2}", 0, 10, 2, key=f"b_k_{i}")
+                })
+            leitung_out = {
+                "d": st.number_input("Ø Innen Auslass (mm)", value=15.0, key="d_out"),
+                "l": st.number_input("Länge Auslass (mm)", min_value=1.0, value=1000.0, step=10.0, key="l_out"),
+                "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
+            }
 
     with st.expander("5. Permeatleitungen", expanded=False):
         p_leitungen_konz, p_leitung_out = [], None
         if schaltung == "Parallel (Aufteilung)":
             if anzahl_membranen == 1:
                 st.markdown("**Permeatleitung bis Anlagenausgang**")
-                p_leitung_out = {"d": st.number_input("Ø Permeat (mm)", 10.0), "l": st.number_input("Länge (mm)", 2000.0, min_value=1.0), "b": st.number_input("Bögen", 0)}
+                p_leitung_out = {"d": st.number_input("Ø Permeat (mm)", value=10.0, key="po_d"), "l": st.number_input("Länge (mm)", value=2000.0, min_value=1.0, key="po_l"), "b": st.number_input("Bögen", value=0, key="po_b")}
             else:
                 for i in range(anzahl_membranen):
-                    p_leitungen_konz.append({"d": st.number_input(f"Ø {membran_namen[i]}->T (P)", 10.0, key=f"pd{i}"), "l": st.number_input(f"Länge {membran_namen[i]} (P)", 500.0, min_value=1.0, key=f"pl{i}"), "b": st.number_input(f"Bögen {membran_namen[i]} (P)", 0, key=f"pb{i}")})
+                    p_leitungen_konz.append({"d": st.number_input(f"Ø {membran_namen[i]}->T (P)", value=10.0, key=f"pd_{i}"), "l": st.number_input(f"Länge {membran_namen[i]} (P)", value=500.0, min_value=1.0, key=f"pl_{i}"), "b": st.number_input(f"Bögen {membran_namen[i]} (P)", value=0, key=f"pb_{i}")})
                 st.divider()
-                p_leitung_out = {"d": st.number_input("Ø Sammelrohr (P)", 15.0), "l": st.number_input("Länge Sammel (P)", 2000.0, min_value=1.0), "b": st.number_input("Bögen Sammel (P)", 0)}
+                p_leitung_out = {"d": st.number_input("Ø Sammelrohr (P)", value=15.0, key="pt_d"), "l": st.number_input("Länge Sammel (P)", value=2000.0, min_value=1.0, key="pt_l"), "b": st.number_input("Bögen Sammel (P)", value=0, key="pt_b")}
 
 # --- BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
-    ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, [], {"d":15,"l":1000,"b":2}) # Dummy out
+    ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
     ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out, p_leitungen_konz, p_leitung_out)
 
