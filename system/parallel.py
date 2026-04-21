@@ -2,12 +2,13 @@ import math
 from membrane.modell import berechne_tcf, berechne_a_wert
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, empfehle_drossel_durchmesser
 
-def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
+def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_rueckhalt, tds_feed, temp, p_system,
                        r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz):
     
     tcf = berechne_tcf(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck)
+    anzahl_membranen = len(flow_fractions)
 
     ndp_start = p_system - ((tds_feed / 100) * 0.07)
     q_p_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0, ndp_start) * tcf * 1000
@@ -25,15 +26,23 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
     total_permeat = 0
     total_permeat_salzfracht = 0
     membran_daten = []
-    f_in = q_feed_start_lh / anzahl_membranen
+    
+    # Der erste Konzentratstrom (für die Sammelleitung später) wird initialisiert
+    q_c_first = 0 
     
     for i in range(anzahl_membranen):
         pi = (tds_feed / 100) * 0.07
         ndp = max(0, p_effektiv_start - pi)
+        
+        # HIER IST DIE MAGIE: Der Feed wird anhand des hydraulischen Widerstands aufgeteilt!
+        f_in = q_feed_start_lh * flow_fractions[i]
+        
         q_p = m_flaeche * a_wert * ndp * tcf * 1000
         if q_p > f_in * 0.95: q_p = f_in * 0.95
         
         q_c = f_in - q_p
+        if i == 0: q_c_first = q_c
+        
         tds_p = tds_feed * (1 - m_rueckhalt)
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
         
@@ -41,7 +50,7 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         total_permeat_salzfracht += (q_p * tds_p)
         
         membran_daten.append({
-            "Membran": f"Modul {i+1}",
+            "Membran": membran_namen[i],
             "Eingangsdruck (bar)": round(p_effektiv_start, 2),
             "Permeat (l/h)": round(q_p, 1),
             "Konzentrat (l/h)": round(q_c, 1),
@@ -51,17 +60,21 @@ def simuliere_parallel(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
         })
 
     avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
-    # In der Parallelschaltung ist der End-TDS gleich dem Modul-TDS
     final_konzentrat_tds = tds_c 
 
-    current_sammel_flow = q_c
+    current_sammel_flow = q_c_first
     p_sammel = p_effektiv_start - 0.2
+    
+    # Sammelleitungen berechnen
     for i in range(anzahl_membranen - 1):
         l_cfg = leitungen_konz[i]
         r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
         p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
         p_sammel -= (p_verlust_sammel + 0.05) 
-        current_sammel_flow += (f_in - membran_daten[i+1]["Permeat (l/h)"])
+        
+        # Konzentrat des nächsten Moduls zur Sammelleitung hinzufügen
+        next_f_in = q_feed_start_lh * flow_fractions[i+1]
+        current_sammel_flow += (next_f_in - membran_daten[i+1]["Permeat (l/h)"])
 
     end_konzentrat_flow = q_feed_start_lh - total_permeat
     abzubauender_druck = max(0.1, p_sammel - 0.5)
