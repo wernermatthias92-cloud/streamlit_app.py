@@ -42,15 +42,15 @@ def berechne_netzwerk(
     r_b_tot = r_b_main + r_b_sub
 
     # --- Gesamt-Netzwerk ---
-    r_netzwerk = r_parallel(r_a_tot, r_b_tot)
+d_a1, l_a1, d_a2, l_a2 = 0, 0, 0, 0
+d_b1, l_b1, d_b2, l_b2 = 0, 0, 0, 0
 
-    pct_a = math.sqrt(r_b_tot) / (math.sqrt(r_a_tot) + math.sqrt(r_b_tot))
-    pct_b = 1.0 - pct_a
-
-    if sub_a:
-        pct_a1 = math.sqrt(r_a2) / (math.sqrt(r_a1) + math.sqrt(r_a2))
-
-    if sub_b:
-        pct_b1 = math.sqrt(r_b2) / (math.sqrt(r_b1) + math.sqrt(r_b2))
-
-    return r_netzwerk, pct_a, pct_b, pct_a1, pct_b1
+r_netzwerk, pct_a, pct_b, pct_a1, pct_b1 = berechne_netzwerk(
+    hat_t_stueck,
+    d_a, l_a, sub_a,
+    d_a1 if sub_a else 0, l_a1 if sub_a else 0,
+    d_a2 if sub_a else 0, l_a2 if sub_a else 0,
+    d_b, l_b, sub_b,
+    d_b1 if sub_b else 0, l_b1 if sub_b else 0,
+    d_b2 if sub_b else 0, l_b2 if sub_b else 0
+)
