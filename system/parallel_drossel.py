@@ -2,15 +2,19 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand
 
 def berechne_drossel_druckabfall(flow_lh, drossel_mm):
+    # Verhindert Division durch 0. Wenn Fluss extrem klein, setze Dummy-Wert (9999)
     if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
     
     q_ms = (flow_lh / 1000) / 3600
     d_m = drossel_mm / 1000.0
     area_m2 = math.pi * (d_m / 2)**2
+    
+    # Reale physikalische Blenden-Gleichung (Cd = 0.6)
     c_d = 0.6
     v_spalt = q_ms / (area_m2 * c_d)
+    
     delta_p_pa = (1000 * v_spalt**2) / 2
-    return delta_p_pa / 100000.0
+    return delta_p_pa / 100000.0 # Umrechnung in bar
 
 # NEU: Berechnung des realen Pumpendrucks basierend auf einer parabolischen Kennlinie
 def berechne_pumpendruck(flow_lh, p_max, q_max):
@@ -27,9 +31,11 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
     anzahl_membranen = len(flow_fractions)
     if anzahl_membranen == 0: return {"error": "Keine Membranen gefunden."}
 
+    # TCF (Temperatur-Korrektur)
     tcf_real = math.exp(3020 * (1/298.15 - 1/(273.15 + temp)))
     a_wert = m_test_flow / (m_flaeche * m_test_druck * 1.0 * 1000)
 
+    # Sicheres Abrufen der Rohr-Widerstände
     r_p_out = berechne_hydraulischen_widerstand(p_leitung_out['d'], p_leitung_out['l'], [], p_leitung_out['b']) if p_leitung_out else 0
     r_p_schlauch = berechne_hydraulischen_widerstand(p_schlauch_out['d'], p_schlauch_out['l'], [], 0) if p_schlauch_out else 0
     p_back_height = (p_schlauch_out['h'] * 1000 * 9.81) / 100000 if p_schlauch_out else 0
@@ -43,35 +49,32 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
             
     # --- NUMERISCHER SOLVER START ---
     feed_min = 5.0
-    feed_max = min(20000.0, q_max * 0.99) # Wir können nicht mehr fördern als die Pumpe schafft
+    # Wir können nicht mehr fördern als die Pumpe maximal schafft
+    feed_max = min(20000.0, q_max * 0.99) 
     best_result = {"error": "Solver konnte kein Gleichgewicht finden."}
 
-    for iteration in range(60):
+    for iteration in range(60): # 60 Iterationen für absolute Präzision
         q_feed_start_lh = (feed_min + feed_max) / 2
-        
-        # 1. Die Pumpe liefert jetzt keinen festen Druck mehr, sondern einen zum Fluss passenden!
-        p_aktuell = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
-        
         q_ms = (q_feed_start_lh / 1000) / 3600
         
-        # 1. Druckverlust VOR der Pumpe berechnen
+        # 1. Druckverlust VOR der Pumpe berechnen (Saugleitung)
         p_verlust_saug = (r_saug * q_ms**2) / 100000 
         p_vor_pumpe = p_zulauf - p_verlust_saug
         
-        # Sicherheitsnetz: Wenn der Saugwiderstand höher ist als der Zulaufdruck, 
-        # entsteht Unterdruck (Kavitationsgefahr für die Pumpe!). Wir deckeln bei 0 bar.
+        # Sicherheitsnetz: Bei zu viel Sog entsteht Unterdruck (0 bar Grenze)
         if p_vor_pumpe < 0: p_vor_pumpe = 0 
         
-        # 2. Die Pumpe addiert ihren Boost (Delta P) auf den ankommenden Druck
+        # 2. Die Pumpe addiert ihren Leistungs-Boost (Delta P) auf den ankommenden Druck
         p_pumpen_boost = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
         p_aktuell = p_vor_pumpe + p_pumpen_boost
         
-        # 3. Druckverlust NACH der Pumpe berechnen
+        # 3. Druckverlust NACH der Pumpe (Hauptleitung & T-Stücke) abziehen
         p_verlust_druck_haupt = (r_druck_haupt * q_ms**2) / 100000
         p_verlust_netzwerk = (r_netzwerk * q_ms**2) / 100000 if hat_t_stueck else 0
         
         p_effektiv_start = p_aktuell - p_verlust_druck_haupt - p_verlust_netzwerk
         
+        # Falls Strömungsverlust extrem hoch, drücke den Feed im nächsten Schritt nach unten
         if p_effektiv_start <= 0.5:
             feed_max = q_feed_start_lh
             continue
@@ -80,6 +83,7 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
         total_permeat_salzfracht = 0
         membran_daten = []
         
+        # Schätzung für den Haupt-Gegendruck Permeat
         q_p_approx_total = q_feed_start_lh * 0.4
         q_ms_p = (q_p_approx_total / 1000) / 3600
         p_back_main = ((r_p_out + r_p_schlauch) * q_ms_p**2) / 100000 + p_back_height
@@ -92,6 +96,7 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
             tds_p = tds_feed * (1 - m_rueckhalt)
             
             for _ in range(20):
+                # Niemals mehr als 95% saugen, niemals unter 0 fallen
                 if q_p > f_in * 0.95: q_p = f_in * 0.95 
                 if q_p < 0: q_p = 0
                 
@@ -119,10 +124,11 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
                 q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
                 q_p = q_p * 0.5 + q_p_target * 0.5
                 
+                # Sichern am Ende der Schleife
                 if q_p > f_in * 0.95: q_p = f_in * 0.95
                 
             q_c = f_in - q_p
-            if q_c <= 0: q_c = 0.001
+            if q_c <= 0: q_c = 0.001 # Sicherungsnetz
             tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             total_permeat += q_p
             total_permeat_salzfracht += (q_p * tds_p)
@@ -161,9 +167,11 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
             else:
                 p_vor_ventil = p_t_stueck
 
+        # Physikalischer Abgleich mit der Drossel
         p_verlust_drossel = berechne_drossel_druckabfall(end_konzentrat_flow, drossel_vorgabe_mm)
         restdruck_nach_ventil = p_vor_ventil - p_verlust_drossel
 
+        # Nullpunkt-Suche (Ziel: 0 bar Druck hinter der Drossel)
         if restdruck_nach_ventil > 0.0:
             feed_min = q_feed_start_lh
         else:
@@ -187,7 +195,7 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
             "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
             "abzubauender_druck": min(max(0.0, p_vor_ventil), p_verlust_drossel),
             "empfohlene_drossel_mm": drossel_vorgabe_mm,
-            "realer_pumpendruck": p_aktuell # Wir übergeben den echten Druck zur Anzeige!
+            "realer_pumpendruck": p_aktuell # Echter Pumpendruck wird an die app.py gesendet
         }
 
     return best_result
