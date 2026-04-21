@@ -13,14 +13,13 @@ def generiere_pdf(inputs, ergebnisse):
     def add_section_header(title):
         pdf.ln(5)
         pdf.set_font("Helvetica", 'B', 12)
-        pdf.set_text_color(0, 102, 204) # Leichtes Blau zur Uebersichtlichkeit
+        pdf.set_text_color(0, 102, 204) 
         pdf.cell(0, 8, title, new_x="LMARGIN", new_y="NEXT")
         pdf.set_text_color(0, 0, 0)
         pdf.ln(2)
 
     def add_text(label, value):
         pdf.set_font("Helvetica", 'B', 10)
-        # HIER WURDE DER ABSTAND KORRIGIERT (von 60 auf 95)
         pdf.cell(95, 7, f"{label}:", border=0)
         pdf.set_font("Helvetica", '', 10)
         pdf.cell(0, 7, str(value), border=0, new_x="LMARGIN", new_y="NEXT")
@@ -108,6 +107,9 @@ def generiere_pdf(inputs, ergebnisse):
             add_text(f"  Zweig {i+1} (Ø | Laenge | Boegen)", f"{l['d']} mm | {l['l']} mm | {l['b']}")
     if inputs.get('perm_out'):
         pout = inputs['perm_out']
-        add_text("  Auslass/Sammelleitung Permeat", f"{pout['d']} mm | {pout['l']} mm | {pout['b']} Boegen")
+        add_text("  Sammelrohr Permeat (Ø | Laenge | Boegen)", f"{pout['d']} mm | {pout['l']} mm | {pout['b']}")
+    if inputs.get('perm_schlauch'):
+        ps = inputs['perm_schlauch']
+        add_text("  Auslassschlauch (Ø | Laenge | Hoehe)", f"{ps['d']} mm | {ps['l']} mm | {ps['h']} m Hoehendifferenz")
 
     return bytes(pdf.output())
