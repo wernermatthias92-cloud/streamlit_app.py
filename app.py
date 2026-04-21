@@ -157,18 +157,34 @@ with st.sidebar:
                 "b": st.number_input("Bögen Auslass", 0, 10, 2, key="b_out")
             }
         else:
-            for i in range(anzahl_membranen - 1):
-                leitungen_konz.append({
-                    "d": st.number_input(f"Ø Sammel {i+1}", value=20.0, key=f"d_p_{i}"),
-                    "l": st.number_input(f"Länge Sammel {i+1} (mm)", min_value=1.0, value=300.0, step=10.0, key=f"l_p_{i}"),
-                    "b": st.number_input(f"Bögen Sammel {i+1}", 0, 10, 0, key=f"b_p_{i}")
-                })
+            if anzahl_membranen == 1:
+                st.markdown("**Konzentratleitung bis Drossel**")
+                leitung_out = {
+                    "d": st.number_input("Ø Innen (mm)", value=15.0, key="d_p_out"),
+                    "l": st.number_input("Länge (mm)", min_value=1.0, value=1000.0, step=10.0, key="l_p_out"),
+                    "b": st.number_input("Bögen", 0, 10, 2, key="b_p_out")
+                }
+            else:
+                for i in range(anzahl_membranen):
+                    st.markdown(f"**Konzentratleitung {membran_namen[i]} bis T-Stück**")
+                    leitungen_konz.append({
+                        "d": st.number_input(f"Ø Innen (mm)", value=15.0, key=f"d_p_in_{i}"),
+                        "l": st.number_input(f"Länge (mm)", min_value=1.0, value=500.0, step=10.0, key=f"l_p_in_{i}"),
+                        "b": st.number_input(f"Bögen", 0, 10, 0, key=f"b_p_in_{i}")
+                    })
+                st.divider()
+                st.markdown("**Konzentratleitung von T-Stück bis Drossel**")
+                leitung_out = {
+                    "d": st.number_input("Ø Sammelleitung (mm)", value=20.0, key="d_p_out"),
+                    "l": st.number_input("Länge (mm)", min_value=1.0, value=1000.0, step=10.0, key="l_p_out"),
+                    "b": st.number_input("Bögen", 0, 10, 2, key="b_p_out")
+                }
 
 # --- BERECHNUNG ---
 if schaltung == "In Reihe (Konzentrat -> Feed)":
     ergebnisse = simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, leitungen_konz, leitung_out)
 else:
-    ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz)
+    ergebnisse = simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow, m_test_druck, m_rueckhalt, tds_feed, temp, p_system, r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out)
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
