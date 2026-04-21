@@ -28,31 +28,102 @@ with st.sidebar:
         p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=15.0)
 
     with st.expander("3. Rohrleitungen Zuleitung", expanded=False):
-        d_saug = st.number_input("Ø Innen Saugseite (mm)", value=20.0, key="ds")
+        # --- SAUGSEITE ---
+        st.markdown("**Saugseite (Vor Pumpe)**")
+        d_saug = st.number_input("Ø Innen (mm)", value=20.0, key="ds")
         l_saug = st.number_input("Länge (mm)", value=1000.0, key="ls")
         b_saug = st.number_input("Anzahl 90° Bögen", 0, 10, 0, key="bs")
         n_drossel_saug = st.number_input("Anzahl Drosseln", 0, 5, 0, key="nds")
         drosseln_saug = [st.number_input(f"Ø Drossel {i+1} (mm)", value=10.0, key=f"drs_{i}") for i in range(n_drossel_saug)]
         r_saug = berechne_hydraulischen_widerstand(d_saug, l_saug, drosseln_saug, b_saug)
+        
         st.divider()
+        
+        # --- DRUCKSEITE HAUPTLEITUNG ---
+        st.markdown("**Druckseite (Nach Pumpe)**")
         d_druck = st.number_input("Ø Hauptleitung (mm)", value=15.0)
         l_druck = st.number_input("Länge Hauptleitung (mm)", value=2000.0)
         b_druck = st.number_input("Bögen Hauptleitung", 0, 10, 0)
         r_druck_haupt = berechne_hydraulischen_widerstand(d_druck, l_druck, [], b_druck)
+        
         r_netzwerk = 0
         hat_t_stueck = False
+        
+        # --- PARALLELE AUFTEILUNG (T-STÜCK LOGIK) ---
         if schaltung == "Parallel (Aufteilung)":
             hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen")
             if hat_t_stueck:
+                
+                # STRANG A
                 st.markdown("#### Strang A")
-                d_a = st.number_input("Ø Strang A", value=15.0)
-                l_a = st.number_input("Länge A", value=1000.0)
-                r_a_tot = berechne_hydraulischen_widerstand(d_a, l_a, [], 0)
+                ca1, ca2, ca3 = st.columns(3)
+                d_a = ca1.number_input("Ø Strang A", value=15.0)
+                l_a = ca2.number_input("Länge A", value=1000.0)
+                b_a = ca3.number_input("Bögen A", 0, 10, 0)
+                
+                sub_a = st.checkbox("↳ Strang A in A1 & A2 aufteilen")
+                if sub_a:
+                    c_sub_a1, c_sub_a2, c_sub_a3 = st.columns(3)
+                    d_a1 = c_sub_a1.number_input("Ø A1", value=10.0)
+                    l_a1 = c_sub_a2.number_input("Länge A1", value=500.0)
+                    b_a1 = c_sub_a3.number_input("Bögen A1", 0, 10, 0)
+                    
+                    d_a2 = c_sub_a1.number_input("Ø A2", value=10.0)
+                    l_a2 = c_sub_a2.number_input("Länge A2", value=500.0)
+                    b_a2 = c_sub_a3.number_input("Bögen A2", 0, 10, 0)
+                    
+                    r_a1 = berechne_hydraulischen_widerstand(d_a1, l_a1, [], b_a1)
+                    r_a2 = berechne_hydraulischen_widerstand(d_a2, l_a2, [], b_a2)
+                    r_a_sub = r_parallel(r_a1, r_a2)
+                else:
+                    r_a_sub, r_a1, r_a2 = 0, 0, 0
+                
+                r_a_tot = berechne_hydraulischen_widerstand(d_a, l_a, [], b_a) + r_a_sub
+
+                # STRANG B
                 st.markdown("#### Strang B")
-                d_b = st.number_input("Ø Strang B", value=15.0)
-                l_b = st.number_input("Länge B", value=1000.0)
-                r_b_tot = berechne_hydraulischen_widerstand(d_b, l_b, [], 0)
+                cb1, cb2, cb3 = st.columns(3)
+                d_b = cb1.number_input("Ø Strang B", value=15.0)
+                l_b = cb2.number_input("Länge B", value=1000.0)
+                b_b = cb3.number_input("Bögen B", 0, 10, 0)
+                
+                sub_b = st.checkbox("↳ Strang B in B1 & B2 aufteilen")
+                if sub_b:
+                    c_sub_b1, c_sub_b2, c_sub_b3 = st.columns(3)
+                    d_b1 = c_sub_b1.number_input("Ø B1", value=10.0)
+                    l_b1 = c_sub_b2.number_input("Länge B1", value=500.0)
+                    b_b1 = c_sub_b3.number_input("Bögen B1", 0, 10, 0)
+                    
+                    d_b2 = c_sub_b1.number_input("Ø B2", value=10.0)
+                    l_b2 = c_sub_b2.number_input("Länge B2", value=500.0)
+                    b_b2 = c_sub_b3.number_input("Bögen B2", 0, 10, 0)
+                    
+                    r_b1 = berechne_hydraulischen_widerstand(d_b1, l_b1, [], b_b1)
+                    r_b2 = berechne_hydraulischen_widerstand(d_b2, l_b2, [], b_b2)
+                    r_b_sub = r_parallel(r_b1, r_b2)
+                else:
+                    r_b_sub, r_b1, r_b2 = 0, 0, 0
+                
+                r_b_tot = berechne_hydraulischen_widerstand(d_b, l_b, [], b_b) + r_b_sub
+                
+                # GESAMT NETZWERK
                 r_netzwerk = r_parallel(r_a_tot, r_b_tot)
+
+                # --- LIVE BALANCING AUSGABE (Nur im UI sichtbar) ---
+                st.divider()
+                if (r_a_tot + r_b_tot) > 0:
+                    pct_a = math.sqrt(r_b_tot) / (math.sqrt(r_a_tot) + math.sqrt(r_b_tot))
+                else: pct_a = 0.5
+                pct_b = 1.0 - pct_a
+                
+                st.success(f"**Live Balancing im Netzwerk:**\nStrang A führt {pct_a*100:.1f}% | Strang B führt {pct_b*100:.1f}%")
+                
+                if sub_a and (r_a1 + r_a2) > 0: 
+                    pct_a1 = math.sqrt(r_a2) / (math.sqrt(r_a1) + math.sqrt(r_a2))
+                    st.info(f"↳ Aufteilung A: A1 ({pct_a1*100:.1f}%) | A2 ({(1-pct_a1)*100:.1f}%)")
+                if sub_b and (r_b1 + r_b2) > 0: 
+                    pct_b1 = math.sqrt(r_b2) / (math.sqrt(r_b1) + math.sqrt(r_b2))
+                    st.info(f"↳ Aufteilung B: B1 ({pct_b1*100:.1f}%) | B2 ({(1-pct_b1)*100:.1f}%)")
 
     with st.expander("4. Konzentrat- & Zwischenleitungen", expanded=False):
         leitungen_konz = []
@@ -95,7 +166,6 @@ c2.metric("Gesamt Konzentrat", f"{ergebnisse['end_konzentrat_flow']:.1f} l/h")
 c3.metric("Benötigter Speisestrom", f"{ergebnisse['q_feed_start_lh']:.1f} l/h")
 c4.metric("Ist-Ausbeute", f"{(ergebnisse['total_permeat'] / ergebnisse['q_feed_start_lh'] * 100):.1f} %" if ergebnisse['q_feed_start_lh'] > 0 else "0 %")
 
-# Neue Zeile für TDS-Qualität
 q1, q2, q3 = st.columns(3)
 q1.metric("Feed TDS (Eingang)", f"{tds_feed:.0f} ppm")
 q2.metric("Permeat TDS (Gesamt)", f"{ergebnisse['total_permeat_tds']:.1f} ppm")
@@ -105,8 +175,13 @@ st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True
 
 st.subheader("🔧 Hydraulik-Analyse")
 h1, h2 = st.columns(2)
-with h1: st.info(f"Druckverlust Saugseite: **{ergebnisse['p_verlust_saug']:.3f} bar**")
-with h2: st.success(f"Effektiver Druck an Anlage: **{ergebnisse['p_effektiv_start']:.2f} bar**")
+with h1: 
+    st.info(f"Druckverlust Saugseite: **{ergebnisse['p_verlust_saug']:.3f} bar**")
+with h2: 
+    st.write(f"- Verlust Hauptleitung: {ergebnisse['p_verlust_druck_haupt']:.3f} bar")
+    if hat_t_stueck and schaltung == "Parallel (Aufteilung)":
+       st.write(f"- Verlust im Split-Netzwerk: {ergebnisse['p_verlust_netzwerk']:.3f} bar")
+    st.success(f"Effektiver Druck an Anlage: **{ergebnisse['p_effektiv_start']:.2f} bar**")
 
 st.divider()
 st.subheader("🛑 Konzentrat-Regelventil (End-Drossel)")
