@@ -19,7 +19,7 @@ def berechne_pumpendruck(flow_lh, p_max, q_max):
     return p_max * (1.0 - (flow_lh / q_max)**2)
 
 def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm, m_flaeche, m_test_flow,
-                       m_test_druck, m_rueckhalt, tds_feed, temp, p_max, q_max,
+                       m_test_druck, m_rueckhalt, tds_feed, temp, p_max, q_max, p_zulauf,
                        r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, 
                        leitungen_konz, leitung_out,
                        p_leitungen_konz, p_leitung_out, p_schlauch_out):
@@ -53,11 +53,23 @@ def simuliere_parallel_drossel(flow_fractions, membran_namen, drossel_vorgabe_mm
         p_aktuell = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
         
         q_ms = (q_feed_start_lh / 1000) / 3600
+        
+        # 1. Druckverlust VOR der Pumpe berechnen
         p_verlust_saug = (r_saug * q_ms**2) / 100000 
+        p_vor_pumpe = p_zulauf - p_verlust_saug
+        
+        # Sicherheitsnetz: Wenn der Saugwiderstand höher ist als der Zulaufdruck, 
+        # entsteht Unterdruck (Kavitationsgefahr für die Pumpe!). Wir deckeln bei 0 bar.
+        if p_vor_pumpe < 0: p_vor_pumpe = 0 
+        
+        # 2. Die Pumpe addiert ihren Boost (Delta P) auf den ankommenden Druck
+        p_pumpen_boost = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
+        p_aktuell = p_vor_pumpe + p_pumpen_boost
+        
+        # 3. Druckverlust NACH der Pumpe berechnen
         p_verlust_druck_haupt = (r_druck_haupt * q_ms**2) / 100000
         p_verlust_netzwerk = (r_netzwerk * q_ms**2) / 100000 if hat_t_stueck else 0
         
-        # Der effektive Druck startet jetzt mit dem realen, dynamischen Pumpendruck
         p_effektiv_start = p_aktuell - p_verlust_druck_haupt - p_verlust_netzwerk
         
         if p_effektiv_start <= 0.5:
