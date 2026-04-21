@@ -27,48 +27,45 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
     total_permeat_salzfracht = 0
     membran_daten = []
     
-    q_c_first = 0 
-    
     for i in range(anzahl_membranen):
         f_in = q_feed_start_lh * flow_fractions[i]
         
-        # --- PHYSIK-UPDATE: Iterative Berechnung des mittleren osmotischen Drucks ---
-        # 1. Startwert schätzen (nur anhand der Eingangsdaten)
+        # Startwerte
         pi_inlet = (tds_feed / 100) * 0.07
         q_p = m_flaeche * a_wert * max(0, p_effektiv_start - pi_inlet) * tcf * 1000
-        
-        # 2. Schleife zur physikalischen Feinjustierung (mit Dämpfung gegen Oszillation)
         tds_p = tds_feed * (1 - m_rueckhalt)
-        for _ in range(10): # 10 Durchläufe für sehr sanfte, präzise Annäherung
-            # Sicherheitsgrenze: Eine Membran kann real max 90% ihres Feeds pro Durchlauf filtern
-            if q_p > f_in * 0.90: q_p = f_in * 0.90 
+        
+        # --- PHYSIK-UPDATE v2: Konzentrationspolarisation & TDS-Durchschlag ---
+        for _ in range(15): # 15 Durchläufe für stabile Konvergenz
+            if q_p > f_in * 0.90: q_p = f_in * 0.90 # Harte Grenze: Max 90% Ausbeute pro Modul
             if q_p < 0: q_p = 0
             
             q_c_temp = f_in - q_p
+            recovery = q_p / f_in if f_in > 0 else 0
             
-            # Wie stark konzentriert sich das Wasser bei dieser Permeatmenge auf?
+            # 1. Mittlere Bulk-Salzkonzentration im Modul
             tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c_temp if q_c_temp > 0 else tds_feed
-            
-            # Mittleres Salz im Modul = (Eingang + Ausgang) / 2
             tds_avg = (tds_feed + tds_c_temp) / 2
             
-            # Neuer, genauerer Gegendruck durch das aufkonzentrierte Salz
-            pi_avg = (tds_avg / 100) * 0.07
-            ndp = max(0, p_effektiv_start - pi_avg)
+            # 2. Konzentrationspolarisation (CP): Erzeugt die fiktive Grenzschicht an der Membran
+            cp_factor = math.exp(0.7 * recovery) 
             
-            # Berechne das theoretische Ziel-Permeat
+            # 3. Tatsächliche Salzkonzentration direkt an der Membranwand
+            tds_wall = tds_avg * cp_factor
+            
+            # 4. NEU: Permeat-TDS ist abhängig von der Wandkonzentration!
+            tds_p_target = tds_wall * (1 - m_rueckhalt)
+            tds_p = tds_p * 0.5 + tds_p_target * 0.5 # Gedämpfte Anpassung
+            
+            # 5. Osmotischer Gegendruck der hochkonzentrierten Grenzschicht
+            pi_wall = (tds_wall / 100) * 0.07
+            ndp = max(0, p_effektiv_start - pi_wall)
+            
+            # 6. Neue Permeatmenge
             q_p_target = m_flaeche * a_wert * ndp * tcf * 1000
-            
-            # DÄMPFUNG: Wir springen nicht sofort zum Zielwert, sondern nähern uns zu 50% an.
-            # Das verhindert das Aufschaukeln der Berechnung bei extremen Werten.
             q_p = q_p * 0.5 + q_p_target * 0.5
             
-        # Abschließende harte Grenze für die Anzeige
-        if q_p > f_in * 0.95: q_p = f_in * 0.95
-        
         q_c = f_in - q_p
-        if i == 0: q_c_first = q_c
-        
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
         
         total_permeat += q_p
@@ -84,10 +81,17 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
             "Konz. TDS (ppm)": round(tds_c, 0)
         })
 
+    # Gesamtergebnisse berechnen
     avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
-    final_konzentrat_tds = tds_c 
+    end_konzentrat_flow = q_feed_start_lh - total_permeat
+    
+    # Korrekte Berechnung des finalen Misch-Konzentrats (Massenbilanz der Gesamtanlage)
+    total_feed_salzfracht = q_feed_start_lh * tds_feed
+    total_konzentrat_salzfracht = total_feed_salzfracht - total_permeat_salzfracht
+    final_konzentrat_tds = total_konzentrat_salzfracht / end_konzentrat_flow if end_konzentrat_flow > 0 else tds_feed
 
-    current_sammel_flow = q_c_first
+    # Sammelleitungen berechnen
+    current_sammel_flow = membran_daten[0]["Konzentrat (l/h)"]
     p_sammel = p_effektiv_start - 0.2
     
     for i in range(anzahl_membranen - 1):
@@ -95,11 +99,8 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
         r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
         p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
         p_sammel -= (p_verlust_sammel + 0.05) 
-        
-        next_f_in = q_feed_start_lh * flow_fractions[i+1]
-        current_sammel_flow += (next_f_in - membran_daten[i+1]["Permeat (l/h)"])
+        current_sammel_flow += membran_daten[i+1]["Konzentrat (l/h)"]
 
-    end_konzentrat_flow = q_feed_start_lh - total_permeat
     abzubauender_druck = max(0.1, p_sammel - 0.5)
     empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
 
