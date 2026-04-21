@@ -4,7 +4,7 @@ from hydraulik.widerstand import berechne_hydraulischen_widerstand, empfehle_dro
 
 def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_rueckhalt, tds_feed, temp, p_system,
-                       r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz):
+                       r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, leitungen_konz, leitung_out):
     
     tcf = berechne_tcf(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck)
@@ -90,18 +90,34 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
     total_konzentrat_salzfracht = total_feed_salzfracht - total_permeat_salzfracht
     final_konzentrat_tds = total_konzentrat_salzfracht / end_konzentrat_flow if end_konzentrat_flow > 0 else tds_feed
 
-    # Sammelleitungen berechnen
-    current_sammel_flow = membran_daten[0]["Konzentrat (l/h)"]
-    p_sammel = p_effektiv_start - 0.2
+# Stern-Verteiler & Sammelleitung berechnen
+    p_nach_spacer = p_effektiv_start - 0.2
     
-    for i in range(anzahl_membranen - 1):
-        l_cfg = leitungen_konz[i]
-        r_sammel = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
-        p_verlust_sammel = (r_sammel * ((current_sammel_flow / 1000) / 3600)**2) / 100000
-        p_sammel -= (p_verlust_sammel + 0.05) 
-        current_sammel_flow += membran_daten[i+1]["Konzentrat (l/h)"]
+    if anzahl_membranen == 1:
+        # Nur eine Membran: Direkter Weg zum Ventil
+        r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
+        p_verlust_out = (r_out * ((end_konzentrat_flow / 1000) / 3600)**2) / 100000
+        p_vor_ventil = p_nach_spacer - p_verlust_out
+    else:
+        # 1. Druckverlust in den Einzelsträngen zum Sammel-T-Stück
+        p_verlust_zweige = []
+        for i in range(anzahl_membranen):
+            l_cfg = leitungen_konz[i]
+            q_c_modul = membran_daten[i]["Konzentrat (l/h)"]
+            r_zweig = berechne_hydraulischen_widerstand(l_cfg['d'], l_cfg['l'], [], l_cfg['b'])
+            p_verlust = (r_zweig * ((q_c_modul / 1000) / 3600)**2) / 100000
+            p_verlust_zweige.append(p_verlust)
+            
+        # Physikalischer Worst-Case: Der Zweig mit dem höchsten Widerstand bestimmt den Rückstau am T-Stück
+        max_verlust_zweig = max(p_verlust_zweige) if p_verlust_zweige else 0
+        p_t_stueck = p_nach_spacer - max_verlust_zweig
+        
+        # 2. Druckverlust in der Haupt-Auslassleitung mit dem gesamten Konzentrat
+        r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
+        p_verlust_out = (r_out * ((end_konzentrat_flow / 1000) / 3600)**2) / 100000
+        p_vor_ventil = p_t_stueck - p_verlust_out
 
-    abzubauender_druck = max(0.1, p_sammel - 0.5)
+    abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
     empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
 
     return {
@@ -116,7 +132,7 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
         "p_verlust_druck_haupt": p_verlust_druck_haupt,
         "p_verlust_netzwerk": p_verlust_netzwerk,
         "p_effektiv_start": p_effektiv_start,
-        "konzentrat_druck_verlauf": p_sammel,
+        "konzentrat_druck_verlauf": p_vor_ventil,
         "abzubauender_druck": abzubauender_druck,
         "empfohlene_drossel_mm": empfohlene_drossel_mm
     }
