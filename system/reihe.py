@@ -50,7 +50,7 @@ def simuliere_reihe(anzahl_membranen, ausbeute_pct, m_flaeche, m_test_flow,
             "Eingangsdruck (bar)": round(p_in, 2),
             "Permeat (l/h)": round(q_p, 1),
             "Konzentrat (l/h)": round(q_c, 1),
-            "Feed TDS (ppm)": round(tds_in, 0)
+            "Feed TDS (ppm)": round(tds_in, 0),
             "Permeat TDS (ppm)": round(tds_p, 1),
             "Konz. TDS (ppm)": round(tds_c, 0)
         })
