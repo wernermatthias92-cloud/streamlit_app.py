@@ -53,7 +53,8 @@ with st.sidebar:
             ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50, key="ausbeute_pct")
             drossel_vorgabe_mm = 0
         else:
-            drossel_vorgabe_mm = st.number_input("Fester Drossel-Ø (mm)", min_value=0.1, value=1.2, step=0.1, key="drossel_vorgabe_mm")
+            # Minimum auf 0.01 angepasst
+            drossel_vorgabe_mm = st.number_input("Fester Drossel-Ø (mm)", min_value=0.01, value=1.2, step=0.1, key="drossel_vorgabe_mm")
             ausbeute_pct = 0
     
     with st.expander("2. Membrane & System", expanded=True):
@@ -109,16 +110,16 @@ with st.sidebar:
             p_zulauf = st.number_input("Zulaufdruck Ruhezustand (bar)", value=3.0, step=0.1, key="pz")
             st.markdown("**Saugseite**")
             saug_cfg = {
-                "d": st.number_input("Ø Innen Saug (mm)", value=13.2, key="ds"),
-                "l": st.number_input("Länge Saug (mm)", value=1000.0, key="ls"),
-                "b": st.number_input("Bögen Saug", 0, 10, 0, key="bs")
+                "d": st.number_input("Ø Innen Saug (mm)", min_value=0.01, value=13.2, step=0.1, key="ds"),
+                "l": st.number_input("Länge Saug (mm)", min_value=0.01, value=1000.0, step=5.0, key="ls"),
+                "b": st.number_input("Bögen Saug", min_value=0, max_value=20, value=0, key="bs")
             }
             
         st.markdown("**Druckseite (Hauptleitung)**")
         druck_cfg = {
-            "d": st.number_input("Ø Hauptleitung (mm)", value=13.2, key="dh"),
-            "l": st.number_input("Länge Haupt (mm)", value=400.0, key="lh"),
-            "b": st.number_input("Bögen Haupt", 0, 10, 0, key="bh")
+            "d": st.number_input("Ø Hauptleitung (mm)", min_value=0.01, value=13.2, step=0.1, key="dh"),
+            "l": st.number_input("Länge Haupt (mm)", min_value=0.01, value=400.0, step=5.0, key="lh"),
+            "b": st.number_input("Bögen Haupt", min_value=0, max_value=20, value=0, key="bh")
         }
         
         st.divider()
@@ -129,20 +130,40 @@ with st.sidebar:
             colA, colB = st.columns(2)
             with colA:
                 st.markdown("Strang A")
-                netzwerk_cfg.update({"d_a": st.number_input("Ø A", 13.2, key="d_a"), "l_a": st.number_input("L A", 150.0, key="l_a"), "b_a": st.number_input("B A", 1, key="b_a")})
+                netzwerk_cfg.update({
+                    "d_a": st.number_input("Ø A", min_value=0.01, value=13.2, step=0.1, key="d_a"), 
+                    "l_a": st.number_input("L A", min_value=0.01, value=150.0, step=5.0, key="l_a"), 
+                    "b_a": st.number_input("B A", min_value=0, value=1, key="b_a")
+                })
                 sub_a = st.checkbox("A aufteilen", key="sub_a")
                 netzwerk_cfg.update({"sub_a": sub_a, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0})
                 if sub_a:
-                    netzwerk_cfg.update({"d_a1": st.number_input("Ø A1", 10.0, key="d_a1"), "l_a1": st.number_input("L A1", 500.0, key="l_a1"), "b_a1": 0,
-                                        "d_a2": st.number_input("Ø A2", 10.0, key="d_a2"), "l_a2": st.number_input("L A2", 500.0, key="l_a2"), "b_a2": 0})
+                    netzwerk_cfg.update({
+                        "d_a1": st.number_input("Ø A1", min_value=0.01, value=10.0, step=0.1, key="d_a1"), 
+                        "l_a1": st.number_input("L A1", min_value=0.01, value=500.0, step=5.0, key="l_a1"), 
+                        "b_a1": 0,
+                        "d_a2": st.number_input("Ø A2", min_value=0.01, value=10.0, step=0.1, key="d_a2"), 
+                        "l_a2": st.number_input("L A2", min_value=0.01, value=500.0, step=5.0, key="l_a2"), 
+                        "b_a2": 0
+                    })
             with colB:
                 st.markdown("Strang B")
-                netzwerk_cfg.update({"d_b": st.number_input("Ø B", 13.2, key="d_b"), "l_b": st.number_input("L B", 150.0, key="l_b"), "b_b": st.number_input("B B", 1, key="b_b")})
+                netzwerk_cfg.update({
+                    "d_b": st.number_input("Ø B", min_value=0.01, value=13.2, step=0.1, key="d_b"), 
+                    "l_b": st.number_input("L B", min_value=0.01, value=150.0, step=5.0, key="l_b"), 
+                    "b_b": st.number_input("B B", min_value=0, value=1, key="b_b")
+                })
                 sub_b = st.checkbox("B aufteilen", value=True, key="sub_b")
                 netzwerk_cfg.update({"sub_b": sub_b, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
                 if sub_b:
-                    netzwerk_cfg.update({"d_b1": st.number_input("Ø B1", 13.2, key="d_b1"), "l_b1": st.number_input("L B1", 200.0, key="l_b1"), "b_b1": 0,
-                                        "d_b2": st.number_input("Ø B2", 13.2, key="d_b2"), "l_b2": st.number_input("L B2", 200.0, key="l_b2"), "b_b2": 0})
+                    netzwerk_cfg.update({
+                        "d_b1": st.number_input("Ø B1", min_value=0.01, value=13.2, step=0.1, key="d_b1"), 
+                        "l_b1": st.number_input("L B1", min_value=0.01, value=200.0, step=5.0, key="l_b1"), 
+                        "b_b1": 0,
+                        "d_b2": st.number_input("Ø B2", min_value=0.01, value=13.2, step=0.1, key="d_b2"), 
+                        "l_b2": st.number_input("L B2", min_value=0.01, value=200.0, step=5.0, key="l_b2"), 
+                        "b_b2": 0
+                    })
         else:
             netzwerk_cfg.update({"d_a": 0, "l_a": 0, "b_a": 0, "sub_a": False, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0,
                                  "d_b": 0, "l_b": 0, "b_b": 0, "sub_b": False, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
@@ -154,34 +175,35 @@ with st.sidebar:
         konz_zweige = []
         for i in range(anzahl_membranen):
             konz_zweige.append({
-                "d": st.number_input(f"Ø Konz {m_namen[i]} (mm)", 8.4, key=f"kd_{i}"), 
-                "l": st.number_input(f"Länge Konz {i} (mm)", 100.0, key=f"kl_{i}"), 
+                "d": st.number_input(f"Ø Konz {m_namen[i]} (mm)", min_value=0.01, value=8.4, step=0.1, key=f"kd_{i}"), 
+                "l": st.number_input(f"Länge Konz {i} (mm)", min_value=0.01, value=100.0, step=5.0, key=f"kl_{i}"), 
                 "b": 0
             })
         st.divider()
         konz_out = {
-            "d": st.number_input("Ø Sammelrohr Konz (mm)", 6.0, key="kod"), 
-            "l": st.number_input("Länge Sammel Konz (mm)", 300.0, key="kol"), 
+            "d": st.number_input("Ø Sammelrohr Konz (mm)", min_value=0.01, value=6.0, step=0.1, key="kod"), 
+            "l": st.number_input("Länge Sammel Konz (mm)", min_value=0.01, value=300.0, step=5.0, key="kol"), 
             "b": 2
         }
 
     with st.expander("5. Permeatleitungen", expanded=False):
         perm_zweige = []
         for i in range(anzahl_membranen):
+            # Statische Werte aus vorherigem Stand übernommen
             perm_zweige.append({"d": 13.2, "l": 300.0, "b": 0})
         
         perm_out = {
-            "d": st.number_input("Ø Sammelrohr Perm (mm)", 13.2, key="pod"), 
-            "l": st.number_input("Länge Sammel Perm (mm)", 1000.0, key="pol"), 
+            "d": st.number_input("Ø Sammelrohr Perm (mm)", min_value=0.01, value=13.2, step=0.1, key="pod"), 
+            "l": st.number_input("Länge Sammel Perm (mm)", min_value=0.01, value=1000.0, step=5.0, key="pol"), 
             "b": 0
         }
         
         st.divider()
         st.markdown("**Auslassschlauch**")
         perm_schlauch = {
-            "d": st.number_input("Ø Schlauch (mm)", 13.2, key="psd"),
-            "l": st.number_input("Länge Schlauch (mm)", 1.0, key="psl"),
-            "h": st.number_input("Höhendifferenz Austritt (m)", 0.0, step=0.5, key="psh")
+            "d": st.number_input("Ø Schlauch (mm)", min_value=0.01, value=13.2, step=0.1, key="psd"),
+            "l": st.number_input("Länge Schlauch (mm)", min_value=0.01, value=1.0, step=5.0, key="psl"),
+            "h": st.number_input("Höhendifferenz Austritt (m)", value=0.0, step=0.5, key="psh")
         }
 
 # --- 3. BERECHNUNGSLOGIK ---
@@ -270,7 +292,6 @@ else:
 
     st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True)
     
-    # NEU: Hinweis zum Flux
     st.caption("💡 **Flux Info:** Ein Flux zwischen 15-25 LMH gilt bei Brunnenwasser als konservativ/sicher. Werte über 30 LMH erhöhen das Risiko für Scaling/Fouling massiv.")
     
     st.divider()
