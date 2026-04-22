@@ -12,11 +12,14 @@ from utils.konfiguration import exportiere_konfiguration, lade_konfiguration
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 
-# --- 1. UI SYNC LOGIK (l/h <-> m³/d) ---
+# --- 1. SESSION STATE INITIALISIERUNG ---
 if 'p_flow_lh' not in st.session_state:
     st.session_state.p_flow_lh = 568.0
 if 'p_flow_m3' not in st.session_state:
     st.session_state.p_flow_m3 = 13.63
+# NEU: Ein Zähler, um den Uploader nach dem Laden zurückzusetzen
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
 
 def sync_m3():
     st.session_state.p_flow_lh = st.session_state.p_flow_m3 * (1000 / 24)
@@ -24,12 +27,22 @@ def sync_lh():
     st.session_state.p_flow_m3 = st.session_state.p_flow_lh * (24 / 1000)
 
 # --- CALLBACK FÜR DAS LADEN DES PROFILS ---
-# Diese Funktion wird ausgeführt, BEVOR die Seite neu gezeichnet wird!
 def lade_profil_callback():
-    if "profil_uploader" in st.session_state and st.session_state.profil_uploader is not None:
-        erfolg, msg = lade_konfiguration(st.session_state.profil_uploader)
-        st.session_state.lade_msg = msg
-        st.session_state.lade_erfolg = erfolg
+    # Wir rufen den Uploader über seinen dynamischen Key auf
+    aktueller_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
+    if aktueller_uploader_key in st.session_state and st.session_state[aktueller_uploader_key] is not None:
+        uploaded_file = st.session_state[aktueller_uploader_key]
+        erfolg, msg = lade_konfiguration(uploaded_file)
+        
+        if erfolg:
+            # NEU: Eigene Erfolgsmeldung mit Dateinamen
+            st.session_state.lade_msg = f"Konfiguration erfolgreich geladen! Aktuelle Konfiguration: **{uploaded_file.name}**"
+            st.session_state.lade_erfolg = True
+            # NEU: Den Uploader-Key hochzählen, damit das Feld geleert wird!
+            st.session_state.uploader_key += 1
+        else:
+            st.session_state.lade_msg = msg
+            st.session_state.lade_erfolg = False
 
 # --- 2. SIDEBAR EINGABEN ---
 with st.sidebar:
@@ -205,33 +218,37 @@ with col_title:
 with col_btn:
     st.write("") # Spacer
     with st.expander("💾 Profil Speichern / Laden", expanded=False):
-        # Der Uploader bekommt einen Key, damit die Callback-Funktion darauf zugreifen kann
-        st.file_uploader("Profil laden (.json)", type=["json"], key="profil_uploader", label_visibility="collapsed")
+        # NEU: Der Uploader bekommt einen dynamischen Key (z.B. profil_uploader_0, dann _1, etc.)
+        dynamischer_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
+        st.file_uploader("Profil laden (.json)", type=["json"], key=dynamischer_uploader_key, label_visibility="collapsed")
         
-        # Der Button triggert die Funktion lade_profil_callback BEVOR der Rerun startet
         st.button("Laden", use_container_width=True, on_click=lade_profil_callback)
         
-        # Erfolgs- oder Fehlermeldung nach dem Rerun anzeigen
+        # Erfolgsmeldung inkl. Dateiname anzeigen
         if "lade_msg" in st.session_state:
             if st.session_state.lade_erfolg:
                 st.success(st.session_state.lade_msg)
             else:
                 st.error(st.session_state.lade_msg)
-            # Bereinigen, damit die Meldung beim nächsten Klick verschwindet
             del st.session_state.lade_msg
             del st.session_state.lade_erfolg
                     
         st.divider()
         
-        # Wir filtern interne Streamlit-Keys heraus, damit das JSON sauber bleibt
-        verbotene_keys = ["profil_uploader", "lade_msg", "lade_erfolg"]
-        aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_') and k not in verbotene_keys}
+        # NEU: Textfeld für den Dateinamen beim Export
+        wunsch_dateiname = st.text_input("Dateiname", value="ro_anlagen_profil")
+        if not wunsch_dateiname.endswith(".json"):
+            wunsch_dateiname += ".json"
+            
+        verbotene_keys = ["lade_msg", "lade_erfolg", "uploader_key"]
+        # Alle Variablen, die mit profil_uploader anfangen, werden ebenfalls gefiltert
+        aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_') and k not in verbotene_keys and not k.startswith("profil_uploader")}
         json_string = exportiere_konfiguration(aktuelle_konfig)
         
         st.download_button(
             label="Als .json exportieren",
             data=json_string,
-            file_name="ro_anlagen_profil.json",
+            file_name=wunsch_dateiname, # Wendet den Wunschnamen an
             mime="application/json",
             use_container_width=True
         )
