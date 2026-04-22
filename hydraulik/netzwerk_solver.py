@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import least_squares
 import math
+from hydraulik.membrane_1d import Membrane1D
 
 RHO = 1000  # kg/m³
 
@@ -57,6 +58,11 @@ def solve_parallel(
 
             p_in = p_feed - k_in[i] * Qf * abs(Qf)
 
+            res_mem = membranes[i].simulate(Qf, p_in, p_perm)
+
+            Qp = res_mem["Qp"]
+            Qc = res_mem["Qc"]
+            
             Qp = membranes[i].permeate_flow(p_in, p_perm)
             Qc = Qf - Qp
 
