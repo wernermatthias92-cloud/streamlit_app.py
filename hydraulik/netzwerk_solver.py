@@ -5,10 +5,9 @@ import math
 RHO = 1000  # kg/m³
 
 # -----------------------------
-# Rohrwiderstand
+# Rohrmodell
 # -----------------------------
 def pipe_k(d, L, zeta=0.0):
-    A = math.pi * d**2 / 4
     return (8 * RHO / (math.pi**2 * d**4)) * (0.02 * L / d + zeta)
 
 
@@ -22,7 +21,7 @@ class Membrane:
         self.tds = tds
 
     def osmotic_pressure(self):
-        return 0.008 * self.tds  # bar (empirisch verbessert)
+        return 0.008 * self.tds  # bar
 
     def permeate_flow(self, p_feed, p_perm):
         pi = self.osmotic_pressure()
@@ -33,58 +32,43 @@ class Membrane:
 # -----------------------------
 # Solver
 # -----------------------------
-def solve_parallel_system(
+def solve_parallel(
     n,
     p_feed,
     p_perm,
     membranes,
-    k_in_list,
-    k_out_list,
-    k_drossel_list=None,
+    k_in,
+    k_out,
+    k_drossel=None,
     target_recovery=None
 ):
-
-    if k_drossel_list is None:
-        k_drossel_list = [0.0] * n
+    if k_drossel is None:
+        k_drossel = [0.0] * n
 
     x0 = np.ones(n) * 1e-4
 
     def residuals(Qf_vec):
         res = []
-
         Qp_total = 0
         Qf_total = 0
 
         for i in range(n):
             Qf = Qf_vec[i]
 
-            k_in = k_in_list[i]
-            k_out = k_out_list[i] + k_drossel_list[i]
-            mem = membranes[i]
+            p_in = p_feed - k_in[i] * Qf * abs(Qf)
 
-            # Druck vor Membran
-            p_in = p_feed - k_in * Qf * abs(Qf)
-
-            # Iteration für Permeat
-            Qp = 0.2 * Qf
-            for _ in range(5):
-                Qc = Qf - Qp
-                p_out = k_out * Qc * abs(Qc)
-                Qp = mem.permeate_flow(p_in, p_perm)
-
+            Qp = membranes[i].permeate_flow(p_in, p_perm)
             Qc = Qf - Qp
-            p_out = k_out * Qc * abs(Qc)
 
-            # Druckkonsistenz
+            p_out = (k_out[i] + k_drossel[i]) * Qc * abs(Qc)
+
             res.append(p_in - p_out - 1e5)
 
             Qp_total += Qp
             Qf_total += Qf
 
-        # Recovery-Bedingung
         if target_recovery is not None:
-            recovery = Qp_total / max(Qf_total, 1e-9)
-            res.append(recovery - target_recovery)
+            res.append(Qp_total / max(Qf_total, 1e-9) - target_recovery)
 
         return res
 
@@ -92,41 +76,30 @@ def solve_parallel_system(
 
     Qf_vec = sol.x
 
-    # -----------------------------
-    # Ergebnisaufbereitung
-    # -----------------------------
-    details = []
+    results = []
     Qp_total = 0
     Qf_total = 0
 
     for i in range(n):
         Qf = Qf_vec[i]
+        p_in = p_feed - k_in[i] * Qf * abs(Qf)
 
-        k_in = k_in_list[i]
-        k_out = k_out_list[i] + k_drossel_list[i]
-        mem = membranes[i]
-
-        p_in = p_feed - k_in * Qf * abs(Qf)
-        Qp = mem.permeate_flow(p_in, p_perm)
+        Qp = membranes[i].permeate_flow(p_in, p_perm)
         Qc = Qf - Qp
+
+        results.append({
+            "Qf": Qf,
+            "Qp": Qp,
+            "Qc": Qc,
+            "p_in": p_in
+        })
 
         Qp_total += Qp
         Qf_total += Qf
 
-        details.append({
-            "membrane": i,
-            "feed_flow_lh": Qf * 3600 * 1000,
-            "permeate_flow_lh": Qp * 3600 * 1000,
-            "concentrate_flow_lh": Qc * 3600 * 1000,
-            "pressure_in_bar": p_in / 1e5
-        })
-
-    recovery = Qp_total / max(Qf_total, 1e-9)
-
     return {
-        "permeat_total": Qp_total * 3600 * 1000,
-        "concentrate_total": (Qf_total - Qp_total) * 3600 * 1000,
-        "feed_total": Qf_total * 3600 * 1000,
-        "recovery": recovery,
-        "details": details
+        "streams": results,
+        "Qp_total": Qp_total,
+        "Qf_total": Qf_total,
+        "recovery": Qp_total / max(Qf_total, 1e-9)
     }
