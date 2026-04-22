@@ -6,7 +6,7 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand
 from system.parallel import simuliere_parallel
 from system.parallel_drossel import simuliere_parallel_drossel
-from hydraulik.netzwerk import analysiere_gesamte_topologie
+from hydraulik.netzwerk import analysiere_gesamte_topologie, berechne_feed_widerstaende
 from utils.pdf_export import generiere_pdf
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
@@ -68,24 +68,37 @@ with st.sidebar:
         temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13)
         
         st.divider()
+        # --- Umschalter für den Digitalen Zwilling ---
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
             p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f")
-            pumpe_p_max, pumpe_q_max = p_system, 0 
+            pumpen_modus, pumpe_p_max, pumpe_q_max, p_fix = None, 0, 0, p_system
         else:
-            pumpe_p_max = st.number_input("Max. Druck bei 0 l/h (bar)", value=11.5, step=0.5, format="%.1f")
-            pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0)
-            p_system = pumpe_p_max 
+            pumpen_modus = st.radio("Pumpendruck-Ermittlung", ["Gemessenen Druck eintragen (Manometer)", "Pumpenkennlinie berechnen"])
+            if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+                p_fix = st.number_input("Manometerdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f")
+                pumpe_p_max, pumpe_q_max = 0, 0
+                p_system = p_fix
+            else:
+                p_fix = 0
+                pumpe_p_max = st.number_input("Max. Druck bei 0 l/h (bar)", value=11.5, step=0.5, format="%.1f")
+                pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0)
+                p_system = pumpe_p_max
 
     with st.expander("3. Zuleitung & T-Stücke", expanded=False):
-        p_zulauf = st.number_input("Zulaufdruck (bar)", value=3.0, step=0.1, key="pz")
-        
-        st.markdown("**Saugseite**")
-        saug_cfg = {
-            "d": st.number_input("Ø Innen Saug (mm)", value=13.2, key="ds"),
-            "l": st.number_input("Länge Saug (mm)", value=1000.0, key="ls"),
-            "b": st.number_input("Bögen Saug", 0, 10, 0, key="bs")
-        }
-        
+        # Saugseite wird ausgeblendet, wenn Druck nach Pumpe direkt gemessen wird
+        if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+            st.info("💡 Saugseite & Zulaufdruck werden ignoriert, da der echte Druck bereits NACH der Pumpe gemessen wurde.")
+            p_zulauf = 0.0
+            saug_cfg = {"d": 13.2, "l": 0.0, "b": 0}
+        else:
+            p_zulauf = st.number_input("Zulaufdruck Ruhezustand (bar)", value=3.0, step=0.1, key="pz")
+            st.markdown("**Saugseite**")
+            saug_cfg = {
+                "d": st.number_input("Ø Innen Saug (mm)", value=13.2, key="ds"),
+                "l": st.number_input("Länge Saug (mm)", value=1000.0, key="ls"),
+                "b": st.number_input("Bögen Saug", 0, 10, 0, key="bs")
+            }
+            
         st.markdown("**Druckseite (Hauptleitung)**")
         druck_cfg = {
             "d": st.number_input("Ø Hauptleitung (mm)", value=13.2, key="dh"),
@@ -120,8 +133,7 @@ with st.sidebar:
             netzwerk_cfg.update({"d_a": 0, "l_a": 0, "b_a": 0, "sub_a": False, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0,
                                  "d_b": 0, "l_b": 0, "b_b": 0, "sub_b": False, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
 
-    # Hier bestimmen wir die Anzahl der Membranen basierend auf dem Netzwerk
-    from hydraulik.netzwerk import berechne_feed_widerstaende
+    # Dynamische Bestimmung der Membran-Anzahl
     _, m_namen, _ = berechne_feed_widerstaende(**netzwerk_cfg)
     anzahl_membranen = len(m_namen)
 
@@ -176,7 +188,8 @@ if auslegungs_modus == "Ziel-Ausbeute vorgeben":
 else:
     ergebnisse = simuliere_parallel_drossel(
         hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, 
-        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, pumpe_p_max, pumpe_q_max, p_zulauf
+        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, 
+        pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix
     )
 
 # --- 4. MAIN WINDOW ---
@@ -185,7 +198,7 @@ st.title("💧 RO-Anlagen Planer")
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
 else:
-    # PDF Export Vorbereitung
+    # PDF Export Vorbereitung (Nimmt exakt die Daten auf, die pdf_export.py erwartet)
     inputs_fuer_pdf = {
         "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
         "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
@@ -214,7 +227,10 @@ else:
     v1, v2, v3 = st.columns(3)
     
     if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)":
-        v1.metric("Pumpendruck (Real)", f"{ergebnisse.get('realer_pumpendruck', 0):.2f} bar")
+        if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+            v1.metric("Pumpendruck (Fix)", f"{p_fix:.2f} bar")
+        else:
+            v1.metric("Pumpendruck (Real)", f"{ergebnisse.get('realer_pumpendruck', 0):.2f} bar")
         v3.metric("Drossel Ø (Fix)", f"Ø {drossel_vorgabe_mm:.2f} mm")
     else:
         v1.metric("Systemdruck (Vorgabe)", f"{p_system:.2f} bar")
