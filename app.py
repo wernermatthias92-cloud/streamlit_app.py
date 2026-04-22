@@ -23,6 +23,14 @@ def sync_m3():
 def sync_lh():
     st.session_state.p_flow_m3 = st.session_state.p_flow_lh * (24 / 1000)
 
+# --- CALLBACK FÜR DAS LADEN DES PROFILS ---
+# Diese Funktion wird ausgeführt, BEVOR die Seite neu gezeichnet wird!
+def lade_profil_callback():
+    if "profil_uploader" in st.session_state and st.session_state.profil_uploader is not None:
+        erfolg, msg = lade_konfiguration(st.session_state.profil_uploader)
+        st.session_state.lade_msg = msg
+        st.session_state.lade_erfolg = erfolg
+
 # --- 2. SIDEBAR EINGABEN ---
 with st.sidebar:
     st.title("⚙️ Parameter")
@@ -197,19 +205,27 @@ with col_title:
 with col_btn:
     st.write("") # Spacer
     with st.expander("💾 Profil Speichern / Laden", expanded=False):
-        uploaded_file = st.file_uploader("Profil laden (.json)", type=["json"], label_visibility="collapsed")
-        if uploaded_file is not None:
-            if st.button("Laden", use_container_width=True):
-                erfolg, msg = lade_konfiguration(uploaded_file)
-                if erfolg:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
+        # Der Uploader bekommt einen Key, damit die Callback-Funktion darauf zugreifen kann
+        st.file_uploader("Profil laden (.json)", type=["json"], key="profil_uploader", label_visibility="collapsed")
+        
+        # Der Button triggert die Funktion lade_profil_callback BEVOR der Rerun startet
+        st.button("Laden", use_container_width=True, on_click=lade_profil_callback)
+        
+        # Erfolgs- oder Fehlermeldung nach dem Rerun anzeigen
+        if "lade_msg" in st.session_state:
+            if st.session_state.lade_erfolg:
+                st.success(st.session_state.lade_msg)
+            else:
+                st.error(st.session_state.lade_msg)
+            # Bereinigen, damit die Meldung beim nächsten Klick verschwindet
+            del st.session_state.lade_msg
+            del st.session_state.lade_erfolg
                     
         st.divider()
         
-        aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_')}
+        # Wir filtern interne Streamlit-Keys heraus, damit das JSON sauber bleibt
+        verbotene_keys = ["profil_uploader", "lade_msg", "lade_erfolg"]
+        aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_') and k not in verbotene_keys}
         json_string = exportiere_konfiguration(aktuelle_konfig)
         
         st.download_button(
