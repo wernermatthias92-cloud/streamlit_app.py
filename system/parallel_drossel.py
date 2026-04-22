@@ -17,7 +17,6 @@ def berechne_pumpendruck(flow_lh, p_max, q_max):
     if flow_lh >= q_max: return 0.0
     return p_max * (1.0 - (flow_lh / q_max)**2)
 
-# NEUE SIGNATUR mit pumpen_modus und p_fix
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
                                m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, 
                                pumpen_modus, p_max, q_max, p_zulauf, p_fix):
@@ -34,7 +33,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
             
     feed_min = 5.0
-    # Wenn wir einen festen Druck haben, kann der Feed theoretisch extrem hoch sein.
     feed_max = 20000.0 if pumpen_modus == "Gemessenen Druck eintragen (Manometer)" else min(20000.0, q_max * 0.99) 
     best_result = {"error": "Solver konnte kein Gleichgewicht finden."}
 
@@ -46,10 +44,9 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         q_feed_start_lh = (feed_min + feed_max) / 2
         q_ms = (q_feed_start_lh / 1000) / 3600
         
-        # --- NEU: Logik-Switch für die Druckerzeugung ---
         if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
             p_aktuell = p_fix
-            p_verlust_saug = 0.0 # Spielt keine Rolle mehr
+            p_verlust_saug = 0.0
         else:
             p_verlust_saug = (hydraulik['r_saug'] * q_ms**2) / 100000 
             p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
@@ -125,9 +122,13 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             total_permeat_salzfracht += (q_p * tds_p)
             
+            # NEU: Flux Berechnung
+            flux_lmh = q_p / m_flaeche
+            
             membran_daten_temp.append({
                 "Membran": membran_namen[i],
                 "Eingangsdruck (bar)": round(p_in, 2),
+                "Flux (LMH)": round(flux_lmh, 1), # <-- NEU hinzugefügt
                 "Permeat (l/h)": round(q_p, 1),
                 "Gegendruck (bar)": round(p_back_total, 3),
                 "Konzentrat (l/h)": round(q_c, 1),
