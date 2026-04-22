@@ -14,6 +14,7 @@ def berechne_parallel_drossel(
     L_out,
     L_drossel
 ):
+
     p_feed = p_feed_bar * 1e5
     p_perm = p_perm_bar * 1e5
 
@@ -22,25 +23,23 @@ def berechne_parallel_drossel(
     k_out_list = []
     k_drossel_list = []
 
-    for i in range(n_membranes):
+    for _ in range(n_membranes):
 
         membranes.append(Membrane(A, area, tds))
 
         k_in_list.append(pipe_k(d_in, L_in))
         k_out_list.append(pipe_k(d_out, L_out))
 
-        # Drosselwiderstand
-        k_drossel_list.append(pipe_k(d_drossel, L_drossel, zeta=2.0))
+        k_drossel_list.append(
+            pipe_k(d_drossel, L_drossel, zeta=2.0)
+        )
 
-    result = solve_parallel_system(
+    return solve_parallel_system(
         n=n_membranes,
         p_feed=p_feed,
         p_perm=p_perm,
         membranes=membranes,
         k_in_list=k_in_list,
         k_out_list=k_out_list,
-        k_drossel_list=k_drossel_list,
-        target_recovery=None
+        k_drossel_list=k_drossel_list
     )
-
-    return result
