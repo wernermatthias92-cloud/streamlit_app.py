@@ -5,148 +5,128 @@ import math
 RHO = 1000  # kg/m³
 
 # -----------------------------
-# Basis-Klassen
+# Rohrwiderstand
 # -----------------------------
-
-class Node:
-    def __init__(self, name, fixed_pressure=None):
-        self.name = name
-        self.fixed_pressure = fixed_pressure
+def pipe_k(d, L, zeta=0.0):
+    A = math.pi * d**2 / 4
+    return (8 * RHO / (math.pi**2 * d**4)) * (0.02 * L / d + zeta)
 
 
-class Edge:
-    def __init__(self, name, n1, n2):
-        self.name = name
-        self.n1 = n1
-        self.n2 = n2
-
-
-class Pipe(Edge):
-    def __init__(self, name, n1, n2, k):
-        super().__init__(name, n1, n2)
-        self.k = k  # Δp = k * Q^2
-
-    def residual(self, p1, p2, Q):
-        return p1 - p2 - self.k * Q * abs(Q)
-
-
-class Membrane(Edge):
-    def __init__(self, name, n_feed, n_conc, n_perm,
-                 A, area, tds):
-        super().__init__(name, n_feed, n_conc)
-        self.n_perm = n_perm
+# -----------------------------
+# Membranmodell
+# -----------------------------
+class Membrane:
+    def __init__(self, A, area, tds):
         self.A = A
         self.area = area
         self.tds = tds
 
     def osmotic_pressure(self):
-        # einfache Verbesserung gegenüber deinem Modell
-        return 0.008 * self.tds  # bar (empirisch besser als vorher)
+        return 0.008 * self.tds  # bar (empirisch verbessert)
 
     def permeate_flow(self, p_feed, p_perm):
         pi = self.osmotic_pressure()
         ndp = max(p_feed - p_perm - pi, 0)
-        return self.A * self.area * ndp  # m³/s
-
-    def residuals(self, p_feed, p_conc, p_perm, Qf, Qc, Qp):
-        res = []
-
-        # 1. Massenbilanz
-        res.append(Qf - Qc - Qp)
-
-        # 2. Permeatflussgesetz
-        Qp_model = self.permeate_flow(p_feed, p_perm)
-        res.append(Qp - Qp_model)
-
-        # 3. einfacher Druckverlust Feed→Konzentrat
-        k_mem = 1e5
-        res.append(p_feed - p_conc - k_mem * Qf * abs(Qf))
-
-        return res
+        return self.A * self.area * ndp
 
 
 # -----------------------------
 # Solver
 # -----------------------------
+def solve_parallel_system(
+    n,
+    p_feed,
+    p_perm,
+    membranes,
+    k_in_list,
+    k_out_list,
+    k_drossel_list=None,
+    target_recovery=None
+):
 
-class NetworkSolver:
+    if k_drossel_list is None:
+        k_drossel_list = [0.0] * n
 
-    def __init__(self):
-        self.nodes = []
-        self.edges = []
+    x0 = np.ones(n) * 1e-4
 
-    def add_node(self, node):
-        self.nodes.append(node)
+    def residuals(Qf_vec):
+        res = []
 
-    def add_edge(self, edge):
-        self.edges.append(edge)
+        Qp_total = 0
+        Qf_total = 0
 
-    def solve(self):
+        for i in range(n):
+            Qf = Qf_vec[i]
 
-        n_nodes = len(self.nodes)
-        n_edges = len(self.edges)
+            k_in = k_in_list[i]
+            k_out = k_out_list[i] + k_drossel_list[i]
+            mem = membranes[i]
 
-        # Variablen:
-        # [p0, p1, ..., Q0, Q1, ...]
-        x0 = np.ones(n_nodes + n_edges) * 1e5
+            # Druck vor Membran
+            p_in = p_feed - k_in * Qf * abs(Qf)
 
-        def residuals(x):
-            res = []
+            # Iteration für Permeat
+            Qp = 0.2 * Qf
+            for _ in range(5):
+                Qc = Qf - Qp
+                p_out = k_out * Qc * abs(Qc)
+                Qp = mem.permeate_flow(p_in, p_perm)
 
-            p = x[:n_nodes]
-            Q = x[n_nodes:]
+            Qc = Qf - Qp
+            p_out = k_out * Qc * abs(Qc)
 
-            # Mapping
-            node_index = {n.name: i for i, n in enumerate(self.nodes)}
+            # Druckkonsistenz
+            res.append(p_in - p_out - 1e5)
 
-            # -------------------------
-            # 1. Fixdrücke
-            # -------------------------
-            for i, node in enumerate(self.nodes):
-                if node.fixed_pressure is not None:
-                    res.append(p[i] - node.fixed_pressure)
+            Qp_total += Qp
+            Qf_total += Qf
 
-            # -------------------------
-            # 2. Knotenbilanzen
-            # -------------------------
-            for i, node in enumerate(self.nodes):
-                flow_sum = 0
+        # Recovery-Bedingung
+        if target_recovery is not None:
+            recovery = Qp_total / max(Qf_total, 1e-9)
+            res.append(recovery - target_recovery)
 
-                for j, edge in enumerate(self.edges):
-                    if edge.n1 == node.name:
-                        flow_sum -= Q[j]
-                    elif edge.n2 == node.name:
-                        flow_sum += Q[j]
+        return res
 
-                res.append(flow_sum)
+    sol = least_squares(residuals, x0)
 
-            # -------------------------
-            # 3. Kanten
-            # -------------------------
-            for j, edge in enumerate(self.edges):
+    Qf_vec = sol.x
 
-                i1 = node_index[edge.n1]
-                i2 = node_index[edge.n2]
+    # -----------------------------
+    # Ergebnisaufbereitung
+    # -----------------------------
+    details = []
+    Qp_total = 0
+    Qf_total = 0
 
-                if isinstance(edge, Pipe):
-                    res.append(edge.residual(p[i1], p[i2], Q[j]))
+    for i in range(n):
+        Qf = Qf_vec[i]
 
-                elif isinstance(edge, Membrane):
+        k_in = k_in_list[i]
+        k_out = k_out_list[i] + k_drossel_list[i]
+        mem = membranes[i]
 
-                    # zusätzliche Variable für Permeatstrom
-                    Qf = Q[j]
-                    Qp = 0.2 * abs(Qf)  # initialer Ansatz
-                    Qc = Qf - Qp
+        p_in = p_feed - k_in * Qf * abs(Qf)
+        Qp = mem.permeate_flow(p_in, p_perm)
+        Qc = Qf - Qp
 
-                    p_perm = p[node_index[edge.n_perm]]
+        Qp_total += Qp
+        Qf_total += Qf
 
-                    res.extend(edge.residuals(
-                        p[i1], p[i2], p_perm,
-                        Qf, Qc, Qp
-                    ))
+        details.append({
+            "membrane": i,
+            "feed_flow_lh": Qf * 3600 * 1000,
+            "permeate_flow_lh": Qp * 3600 * 1000,
+            "concentrate_flow_lh": Qc * 3600 * 1000,
+            "pressure_in_bar": p_in / 1e5
+        })
 
-            return res
+    recovery = Qp_total / max(Qf_total, 1e-9)
 
-        sol = least_squares(residuals, x0, verbose=0)
-
-        return sol
+    return {
+        "permeat_total": Qp_total * 3600 * 1000,
+        "concentrate_total": (Qf_total - Qp_total) * 3600 * 1000,
+        "feed_total": Qf_total * 3600 * 1000,
+        "recovery": recovery,
+        "details": details
+    }
