@@ -5,23 +5,18 @@ from hydraulik.widerstand import empfehle_drossel_durchmesser
 def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, p_system):
     
-    # 1. Wissenschaftliche Temperatur-Korrektur und A-Wert (mit echtem Datenblatt-TDS)
     tcf_real = berechne_tcf(temp)
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
     
-    # Realer Rückhalt (schlechter bei warmem Wasser, besser bei kaltem)
-    # Basis ist 25°C. Bei 25°C ist tcf_salz = 1.0. 
     salzdurchgang_basis = 1.0 - m_rueckhalt
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
-    m_rueckhalt_real = 1.0 - salzdurchgang_real
 
     membran_namen = hydraulik['membran_namen']
     anzahl_membranen = len(membran_namen)
     if anzahl_membranen == 0:
         return {"error": "Keine Membranen im System definiert."}
 
-    # 2. Start-Werte initialisieren
     ndp_approx = p_system - ((tds_feed / 100) * 0.07) - 0.5
     q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
@@ -30,7 +25,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     q_p_array = [q_p_total_approx / anzahl_membranen] * anzahl_membranen
     tds_p_array = [tds_feed * salzdurchgang_real] * anzahl_membranen
 
-    # 3. Die große Iterationsschleife (Dynamischer Flussausgleich)
     for iteration in range(40):
         q_ms_feed = (q_feed_start_lh / 1000) / 3600
         p_verlust_saug = (hydraulik['r_saug'] * q_ms_feed**2) / 100000 
@@ -54,7 +48,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             q_c = max(0.001, f_in - q_p)
             recovery = q_p / f_in
             
-            # Konzentrationspolarisation
             tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             tds_avg = (tds_feed + tds_c_temp) / 2
             cp_factor = math.exp(0.7 * recovery) 
@@ -63,7 +56,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             tds_p_target = tds_wall * salzdurchgang_real
             tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
-            # Exakte Druckverluste
             q_ms_f_in = (f_in / 1000) / 3600
             p_verlust_feed = (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
             p_in = p_split - p_verlust_feed
@@ -75,13 +67,11 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             p_back_branch = (hydraulik['r_p_zweige'][i] * q_ms_p_i**2) / 100000
             p_back_total = p_back_main + p_back_branch
             
-            # Permeat-Erzeugung
             pi_wall = (tds_wall / 100) * 0.07
             ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
             q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
             q_p_array[i] = q_p * 0.5 + q_p_target * 0.5
             
-            # Leitwert des Strangs berechnen
             q_ms_c_i = (q_c / 1000) / 3600
             p_verlust_konz = (hydraulik['r_k_zweige'][i] * q_ms_c_i**2) / 100000
             
@@ -89,15 +79,12 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
             r_eff_list.append(r_eff)
             
-        # 4. Wasser neu verteilen
         sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
         flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
         
-        # 5. Feed-Strom nachjustieren
         if ausbeute_pct > 0:
             q_feed_start_lh = sum(q_p_array) / (ausbeute_pct / 100)
 
-    # 6. Ergebnisse verpacken
     membran_daten = []
     total_permeat_salzfracht = 0
     p_nach_zweigen = []
@@ -118,10 +105,14 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_spacer = 0.2 * (f_in / 1000)**1.5
         p_konz = (hydraulik['r_k_zweige'][i] * ((q_c/1000)/3600)**2) / 100000
         p_nach_zweigen.append(p_in - p_spacer - p_konz)
+        
+        # NEU: Flux Berechnung
+        flux_lmh = q_p / m_flaeche
 
         membran_daten.append({
             "Membran": membran_namen[i],
             "Eingangsdruck (bar)": round(p_in, 2),
+            "Flux (LMH)": round(flux_lmh, 1), # <-- NEU hinzugefügt
             "Permeat (l/h)": round(q_p, 1),
             "Gegendruck (bar)": round(p_back, 3),
             "Konzentrat (l/h)": round(q_c, 1),
