@@ -4,7 +4,6 @@ def generiere_pdf(inputs, ergebnisse):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # Hilfsfunktionen fuer einheitliches Design
     def add_title(title):
         pdf.set_font("Helvetica", 'B', 14)
         pdf.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
@@ -55,6 +54,11 @@ def generiere_pdf(inputs, ergebnisse):
         pdf.set_font("Helvetica", 'I', 11)
         pdf.cell(0, 7, f"> {mod['Membran']}", new_x="LMARGIN", new_y="NEXT")
         add_text("   Eingangsdruck", f"{mod['Eingangsdruck (bar)']} bar")
+        
+        # NEU: Flux im PDF ausgeben
+        if 'Flux (LMH)' in mod:
+            add_text("   Flux", f"{mod['Flux (LMH)']} LMH")
+            
         if 'Gegendruck (bar)' in mod:
             add_text("   Gegendruck Permeat", f"{mod['Gegendruck (bar)']} bar")
         add_text("   Permeat", f"{mod['Permeat (l/h)']} l/h")
