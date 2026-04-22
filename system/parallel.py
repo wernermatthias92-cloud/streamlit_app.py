@@ -1,120 +1,143 @@
 import math
 from membrane.modell import berechne_tcf, berechne_a_wert
-from hydraulik.widerstand import berechne_hydraulischen_widerstand, empfehle_drossel_durchmesser
+from hydraulik.widerstand import empfehle_drossel_durchmesser
 
-def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m_test_flow,
-                       m_test_druck, m_rueckhalt, tds_feed, temp, p_system,
-                       r_saug, r_druck_haupt, r_netzwerk, hat_t_stueck, 
-                       leitungen_konz, leitung_out,
-                       p_leitungen_konz, p_leitung_out, p_schlauch_out):
+def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
+                       m_test_druck, m_rueckhalt, tds_feed, temp, p_system):
     
     # 1. Wissenschaftliche Temperatur-Korrektur (TCF) und A-Wert
     tcf_real = berechne_tcf(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck)
     
-    anzahl_membranen = len(flow_fractions)
+    membran_namen = hydraulik['membran_namen']
+    anzahl_membranen = len(membran_namen)
     if anzahl_membranen == 0:
         return {"error": "Keine Membranen im System definiert."}
 
-    # 3. Erste Abschätzung für den Feed-Bedarf
+    # 2. Start-Werte initialisieren
     ndp_approx = p_system - ((tds_feed / 100) * 0.07) - 0.5
     q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
 
-    # 4. Hydraulik der Zuleitung
-    q_ms_feed = (q_feed_start_lh / 1000) / 3600
-    p_verlust_saug = (r_saug * q_ms_feed**2) / 100000 
-    p_verlust_druck_haupt = (r_druck_haupt * q_ms_feed**2) / 100000
-    p_verlust_netzwerk = (r_netzwerk * q_ms_feed**2) / 100000 if hat_t_stueck else 0
-    p_effektiv_start = p_system - p_verlust_druck_haupt - p_verlust_netzwerk
+    # Start-Annahme: Das Wasser teilt sich exakt gleich auf
+    flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
+    q_p_array = [q_p_total_approx / anzahl_membranen] * anzahl_membranen
+    tds_p_array = [tds_feed * (1 - m_rueckhalt)] * anzahl_membranen
 
-    # 5. Permeat-Hydraulik
-    r_p_out = berechne_hydraulischen_widerstand(p_leitung_out['d'], p_leitung_out['l'], [], p_leitung_out['b']) if p_leitung_out else 0
-    r_p_schlauch = berechne_hydraulischen_widerstand(p_schlauch_out['d'], p_schlauch_out['l'], [], 0) if p_schlauch_out else 0
-    p_back_height = (p_schlauch_out['h'] * 1000 * 9.81) / 100000 if p_schlauch_out else 0
-    
-    r_p_branches = []
-    for i in range(anzahl_membranen):
-        if i < len(p_leitungen_konz):
-            r_p_branches.append(berechne_hydraulischen_widerstand(p_leitungen_konz[i]['d'], p_leitungen_konz[i]['l'], [], p_leitungen_konz[i]['b']))
-        else:
-            r_p_branches.append(0)
-
-    # 6. Iteration
-    total_permeat = 0
-    total_permeat_salzfracht = 0
-    membran_daten = []
-    
-    q_ms_p_total = (q_p_total_approx / 1000) / 3600
-    p_back_main = ((r_p_out + r_p_schlauch) * q_ms_p_total**2) / 100000 + p_back_height
-
-    for i in range(anzahl_membranen):
-        f_in = q_feed_start_lh * flow_fractions[i]
-        r_p_branch = r_p_branches[i]
+    # 3. Die große Iterationsschleife (Dynamischer Flussausgleich)
+    for iteration in range(40):
+        # Druck nach der Hauptleitung (Vor der Aufteilung)
+        q_ms_feed = (q_feed_start_lh / 1000) / 3600
+        p_verlust_saug = (hydraulik['r_saug'] * q_ms_feed**2) / 100000 
+        p_verlust_druck_haupt = (hydraulik['r_druck_haupt'] * q_ms_feed**2) / 100000
+        p_split = p_system - p_verlust_druck_haupt
         
-        q_p = (f_in / anzahl_membranen) * 0.5 
-        tds_p = tds_feed * (1 - m_rueckhalt)
+        # Gegendruck im Permeat-Sammelrohr (wirkt auf alle Module)
+        total_permeat = sum(q_p_array)
+        q_ms_p_total = (total_permeat / 1000) / 3600
+        p_back_main = (hydraulik['r_p_out'] + hydraulik['r_p_schlauch']) * q_ms_p_total**2 / 100000 + hydraulik['p_back_height']
         
-        for _ in range(20):
+        r_eff_list = [] # Speichert den dynamischen Gesamtwiderstand jedes Strangs
+        
+        for i in range(anzahl_membranen):
+            f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
+            q_p = q_p_array[i]
+            tds_p = tds_p_array[i]
+            
+            # Schutz vor Über-Recovery
             if q_p > f_in * 0.95: q_p = f_in * 0.95
             if q_p < 0: q_p = 0
             
-            q_c_temp = max(0.001, f_in - q_p)
-            recovery_modul = q_p / f_in if f_in > 0 else 0
+            q_c = max(0.001, f_in - q_p)
+            recovery = q_p / f_in
             
-            tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c_temp
+            # Konzentrationspolarisation
+            tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             tds_avg = (tds_feed + tds_c_temp) / 2
-            cp_factor = math.exp(0.7 * recovery_modul) 
+            cp_factor = math.exp(0.7 * recovery) 
             tds_wall = tds_avg * cp_factor
             
             tds_p_target = tds_wall * (1 - m_rueckhalt)
-            tds_p = tds_p * 0.5 + tds_p_target * 0.5
+            tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
-            p_back_branch = (r_p_branch * ((q_p / 1000) / 3600)**2) / 100000
+            # --- NEU: Exakte Druckverluste für genau diesen Zweig ---
+            q_ms_f_in = (f_in / 1000) / 3600
+            p_verlust_feed = (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
+            p_in = p_split - p_verlust_feed
+            
+            p_verlust_spacer = 0.2 * (f_in / 1000)**1.5
+            p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
+            
+            q_ms_p_i = (q_p / 1000) / 3600
+            p_back_branch = (hydraulik['r_p_zweige'][i] * q_ms_p_i**2) / 100000
             p_back_total = p_back_main + p_back_branch
             
-            p_verlust_modul = 0.2 * (f_in / 1000)**1.5
-            p_effektiv_mitte = p_effektiv_start - (p_verlust_modul / 2)
-            
+            # Permeat-Erzeugung anpassen
             pi_wall = (tds_wall / 100) * 0.07
             ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
-            
             q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
-            q_p = q_p * 0.5 + q_p_target * 0.5
+            q_p_array[i] = q_p * 0.5 + q_p_target * 0.5
             
-            if q_p > f_in * 0.95: q_p = f_in * 0.95
+            # --- NEU: Leitwert (Conductance) des Strangs berechnen ---
+            # Der Strang besteht aus: Zuleitung + Spacer + Konzentrat-Abflussleitung
+            q_ms_c_i = (q_c / 1000) / 3600
+            p_verlust_konz = (hydraulik['r_k_zweige'][i] * q_ms_c_i**2) / 100000
+            
+            p_drop_branch = p_verlust_feed + p_verlust_spacer + p_verlust_konz
+            r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
+            r_eff_list.append(r_eff)
+            
+        # 4. Wasser neu verteilen (Weg des geringsten Widerstands)
+        sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
+        flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
+        
+        # 5. Feed-Strom nachjustieren, um exakt die Ziel-Ausbeute zu treffen!
+        if ausbeute_pct > 0:
+            q_feed_start_lh = sum(q_p_array) / (ausbeute_pct / 100)
 
+    # 6. Ergebnisse verpacken
+    membran_daten = []
+    total_permeat_salzfracht = 0
+    p_nach_zweigen = []
+
+    for i in range(anzahl_membranen):
+        f_in = q_feed_start_lh * flow_fractions[i]
+        q_p = q_p_array[i]
         q_c = f_in - q_p
+        tds_p = tds_p_array[i]
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
         
-        total_permeat += q_p
         total_permeat_salzfracht += (q_p * tds_p)
         
+        # Berechnung der Drücke für die Anzeige
+        q_ms_f_in = (f_in / 1000) / 3600
+        p_in = p_split - (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
+        p_back = p_back_main + (hydraulik['r_p_zweige'][i] * ((q_p/1000)/3600)**2) / 100000
+        
+        p_spacer = 0.2 * (f_in / 1000)**1.5
+        p_konz = (hydraulik['r_k_zweige'][i] * ((q_c/1000)/3600)**2) / 100000
+        p_nach_zweigen.append(p_in - p_spacer - p_konz)
+
         membran_daten.append({
             "Membran": membran_namen[i],
-            "Eingangsdruck (bar)": round(p_effektiv_start, 2),
+            "Eingangsdruck (bar)": round(p_in, 2),
             "Permeat (l/h)": round(q_p, 1),
-            "Gegendruck (bar)": round(p_back_total, 3),
+            "Gegendruck (bar)": round(p_back, 3),
             "Konzentrat (l/h)": round(q_c, 1),
             "Feed TDS (ppm)": round(tds_feed, 0),
             "Permeat TDS (ppm)": round(tds_p, 1),
             "Konz. TDS (ppm)": round(tds_c, 0)
         })
 
-    # 7. Gesamtergebnisse
+    # 7. Gesamtanlage berechnen
     avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
     end_konzentrat_flow = q_feed_start_lh - total_permeat
     final_konzentrat_tds = (q_feed_start_lh * tds_feed - total_permeat_salzfracht) / end_konzentrat_flow if end_konzentrat_flow > 0 else tds_feed
 
-    p_nach_spacer_avg = p_effektiv_start - 0.2
-    p_verluste_konz_zweige = []
-    for i, cfg in enumerate(leitungen_konz):
-        r_z = berechne_hydraulischen_widerstand(cfg['d'], cfg['l'], [], cfg['b'])
-        p_verluste_konz_zweige.append(r_z * ((membran_daten[i]["Konzentrat (l/h)"]/1000)/3600)**2 / 100000)
-    
-    p_t_stueck = p_nach_spacer_avg - (max(p_verluste_konz_zweige) if p_verluste_konz_zweige else 0)
-    r_out = berechne_hydraulischen_widerstand(leitung_out['d'], leitung_out['l'], [], leitung_out['b'])
-    p_vor_ventil = p_t_stueck - (r_out * ((end_konzentrat_flow/1000)/3600)**2 / 100000)
+    # Druck vor dem Regelventil berechnen
+    p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
+    q_ms_c_total = (end_konzentrat_flow / 1000) / 3600
+    p_vor_ventil = p_t_stueck_konz - (hydraulik['r_k_out'] * q_ms_c_total**2) / 100000
 
     abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
     empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
@@ -129,8 +152,7 @@ def simuliere_parallel(flow_fractions, membran_namen, ausbeute_pct, m_flaeche, m
         "membran_daten": membran_daten,
         "p_verlust_saug": p_verlust_saug,
         "p_verlust_druck_haupt": p_verlust_druck_haupt,
-        "p_verlust_netzwerk": p_verlust_netzwerk,
-        "p_effektiv_start": p_effektiv_start,
+        "p_effektiv_start": p_split, # Wurde umbenannt in p_split für Korrektheit
         "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
         "abzubauender_druck": abzubauender_druck,
         "empfohlene_drossel_mm": empfohlene_drossel_mm
