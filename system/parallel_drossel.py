@@ -17,14 +17,15 @@ def berechne_pumpendruck(flow_lh, p_max, q_max):
     if flow_lh >= q_max: return 0.0
     return p_max * (1.0 - (flow_lh / q_max)**2)
 
+# NEUE SIGNATUR mit pumpen_modus und p_fix
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
-                               m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, p_max, q_max, p_zulauf):
+                               m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, 
+                               pumpen_modus, p_max, q_max, p_zulauf, p_fix):
     
     membran_namen = hydraulik['membran_namen']
     anzahl_membranen = len(membran_namen)
     if anzahl_membranen == 0: return {"error": "Keine Membranen gefunden."}
 
-    # 1. Wissenschaftliche Temperatur-Korrektur und A-Wert
     tcf_real = berechne_tcf(temp)
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
@@ -33,22 +34,27 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
             
     feed_min = 5.0
-    feed_max = min(20000.0, q_max * 0.99) 
+    # Wenn wir einen festen Druck haben, kann der Feed theoretisch extrem hoch sein.
+    feed_max = 20000.0 if pumpen_modus == "Gemessenen Druck eintragen (Manometer)" else min(20000.0, q_max * 0.99) 
     best_result = {"error": "Solver konnte kein Gleichgewicht finden."}
 
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
-    q_p_array = [(q_max * 0.2) / anzahl_membranen] * anzahl_membranen
+    q_p_array = [200.0 / anzahl_membranen] * anzahl_membranen
     tds_p_array = [tds_feed * salzdurchgang_real] * anzahl_membranen
 
-    # 2. Äußere Schleife: Suche nach dem Gleichgewicht von Pumpe & Drossel
     for iteration in range(60): 
         q_feed_start_lh = (feed_min + feed_max) / 2
         q_ms = (q_feed_start_lh / 1000) / 3600
         
-        p_verlust_saug = (hydraulik['r_saug'] * q_ms**2) / 100000 
-        p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
-        p_pumpen_boost = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
-        p_aktuell = p_vor_pumpe + p_pumpen_boost
+        # --- NEU: Logik-Switch für die Druckerzeugung ---
+        if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+            p_aktuell = p_fix
+            p_verlust_saug = 0.0 # Spielt keine Rolle mehr
+        else:
+            p_verlust_saug = (hydraulik['r_saug'] * q_ms**2) / 100000 
+            p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
+            p_pumpen_boost = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
+            p_aktuell = p_vor_pumpe + p_pumpen_boost
         
         p_verlust_druck_haupt = (hydraulik['r_druck_haupt'] * q_ms**2) / 100000
         p_split = p_aktuell - p_verlust_druck_haupt
@@ -66,7 +72,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         membran_daten_temp = []
         total_permeat_salzfracht = 0
 
-        # 3. Innere Schleife: Modul-Physik und Flussaufteilung
         for i in range(anzahl_membranen):
             f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
             q_p = q_p_array[i]
@@ -131,11 +136,9 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 "Konz. TDS (ppm)": round(tds_c, 0)
             })
 
-        # Wasser neu verteilen
         sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
         flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
 
-        # 4. Abgleich mit der Drossel
         total_permeat = sum(q_p_array)
         end_konzentrat_flow = max(0.001, q_feed_start_lh - total_permeat)
 
