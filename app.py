@@ -8,6 +8,7 @@ from system.parallel import simuliere_parallel
 from system.parallel_drossel import simuliere_parallel_drossel
 from hydraulik.netzwerk import analysiere_gesamte_topologie, berechne_feed_widerstaende
 from utils.pdf_export import generiere_pdf
+from utils.konfiguration import exportiere_konfiguration, lade_konfiguration
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
 
@@ -30,18 +31,18 @@ with st.sidebar:
         st.info("🔧 Modus: Parallele Verschaltung")
         schaltung = "Parallel (Aufteilung)"
         
-        auslegungs_modus = st.radio("Auslegungs-Modus", ["Ziel-Ausbeute vorgeben", "Drossel-Ø vorgeben (Digital Twin)"])
+        auslegungs_modus = st.radio("Auslegungs-Modus", ["Ziel-Ausbeute vorgeben", "Drossel-Ø vorgeben (Digital Twin)"], key="auslegungs_modus")
         
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
-            ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50)
+            ausbeute_pct = st.slider("Ziel-Ausbeute Anlage (%)", 5, 90, 50, key="ausbeute_pct")
             drossel_vorgabe_mm = 0
         else:
-            drossel_vorgabe_mm = st.number_input("Fester Drossel-Ø (mm)", min_value=0.1, value=1.2, step=0.1)
+            drossel_vorgabe_mm = st.number_input("Fester Drossel-Ø (mm)", min_value=0.1, value=1.2, step=0.1, key="drossel_vorgabe_mm")
             ausbeute_pct = 0
     
     with st.expander("2. Membrane & System", expanded=True):
         st.markdown("**Datenblatt-Werte**")
-        m_flaeche = st.number_input("Aktive Filterfläche (m²)", min_value=0.1, value=7.6, step=0.1)
+        m_flaeche = st.number_input("Aktive Filterfläche (m²)", min_value=0.1, value=7.6, step=0.1, key="m_flaeche")
         
         c1, c2 = st.columns(2)
         with c1:
@@ -50,42 +51,40 @@ with st.sidebar:
             st.number_input("Permeat Flow (m³/d)", key='p_flow_m3', on_change=sync_m3)
             
         m_test_flow_datasheet = st.session_state.p_flow_lh
-        m_toleranz_pct = st.number_input("Toleranz / Alterung (%)", min_value=-50.0, max_value=20.0, value=-5.0, step=1.0)
+        m_toleranz_pct = st.number_input("Toleranz / Alterung (%)", min_value=-50.0, max_value=20.0, value=-5.0, step=1.0, key="m_toleranz_pct")
         m_test_flow_effektiv = m_test_flow_datasheet * (1.0 + (m_toleranz_pct / 100.0))
         
         cp, cr = st.columns(2)
         with cp:
-            m_test_druck = st.number_input("Test-Druck (bar)", value=9.3, format="%.1f", step=0.1)
+            m_test_druck = st.number_input("Test-Druck (bar)", value=9.3, format="%.1f", step=0.1, key="m_test_druck")
         with cr:
-            m_rueckhalt_int = st.number_input("Nominal Rejection (%)", min_value=0, max_value=100, value=98, step=1)
+            m_rueckhalt_int = st.number_input("Nominal Rejection (%)", min_value=0, max_value=100, value=98, step=1, key="m_rueckhalt_int")
             m_rueckhalt = m_rueckhalt_int / 100.0
             
-        m_test_tds = st.number_input("Test-Lösung (ppm NaCl)", value=500, step=50)
+        m_test_tds = st.number_input("Test-Lösung (ppm NaCl)", value=500, step=50, key="m_test_tds")
 
         st.divider()
         st.markdown("**Reale Bedingungen**")
-        tds_feed = st.number_input("Feed TDS real (ppm)", value=96)
-        temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13)
+        tds_feed = st.number_input("Feed TDS real (ppm)", value=96, key="tds_feed")
+        temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13, key="temp")
         
         st.divider()
-        # --- Umschalter für den Digitalen Zwilling ---
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
-            p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f")
+            p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f", key="p_system_ziel")
             pumpen_modus, pumpe_p_max, pumpe_q_max, p_fix = None, 0, 0, p_system
         else:
-            pumpen_modus = st.radio("Pumpendruck-Ermittlung", ["Gemessenen Druck eintragen (Manometer)", "Pumpenkennlinie berechnen"])
+            pumpen_modus = st.radio("Pumpendruck-Ermittlung", ["Gemessenen Druck eintragen (Manometer)", "Pumpenkennlinie berechnen"], key="pumpen_modus")
             if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
-                p_fix = st.number_input("Manometerdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f")
+                p_fix = st.number_input("Manometerdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f", key="p_fix")
                 pumpe_p_max, pumpe_q_max = 0, 0
                 p_system = p_fix
             else:
                 p_fix = 0
-                pumpe_p_max = st.number_input("Max. Druck bei 0 l/h (bar)", value=11.5, step=0.5, format="%.1f")
-                pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0)
+                pumpe_p_max = st.number_input("Max. Druck bei 0 l/h (bar)", value=11.5, step=0.5, format="%.1f", key="pumpe_p_max")
+                pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0, key="pumpe_q_max")
                 p_system = pumpe_p_max
 
     with st.expander("3. Zuleitung & T-Stücke", expanded=False):
-        # Saugseite wird ausgeblendet, wenn Druck nach Pumpe direkt gemessen wird
         if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
             st.info("💡 Saugseite & Zulaufdruck werden ignoriert, da der echte Druck bereits NACH der Pumpe gemessen wurde.")
             p_zulauf = 0.0
@@ -107,33 +106,31 @@ with st.sidebar:
         }
         
         st.divider()
-        hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen", value=True)
+        hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen", value=True, key="hat_t_stueck")
         
         netzwerk_cfg = {"hat_t_stueck": hat_t_stueck}
         if hat_t_stueck:
             colA, colB = st.columns(2)
             with colA:
                 st.markdown("Strang A")
-                netzwerk_cfg.update({"d_a": st.number_input("Ø A", 13.2), "l_a": st.number_input("L A", 150.0), "b_a": st.number_input("B A", 1)})
-                sub_a = st.checkbox("A aufteilen")
+                netzwerk_cfg.update({"d_a": st.number_input("Ø A", 13.2, key="d_a"), "l_a": st.number_input("L A", 150.0, key="l_a"), "b_a": st.number_input("B A", 1, key="b_a")})
+                sub_a = st.checkbox("A aufteilen", key="sub_a")
                 netzwerk_cfg.update({"sub_a": sub_a, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0})
                 if sub_a:
-                    netzwerk_cfg.update({"d_a1": st.number_input("Ø A1", 10.0), "l_a1": st.number_input("L A1", 500.0), "b_a1": 0,
-                                        "d_a2": st.number_input("Ø A2", 10.0), "l_a2": st.number_input("L A2", 500.0), "b_a2": 0})
+                    netzwerk_cfg.update({"d_a1": st.number_input("Ø A1", 10.0, key="d_a1"), "l_a1": st.number_input("L A1", 500.0, key="l_a1"), "b_a1": 0,
+                                        "d_a2": st.number_input("Ø A2", 10.0, key="d_a2"), "l_a2": st.number_input("L A2", 500.0, key="l_a2"), "b_a2": 0})
             with colB:
                 st.markdown("Strang B")
-                netzwerk_cfg.update({"d_b": st.number_input("Ø B", 13.2), "l_b": st.number_input("L B", 150.0), "b_b": st.number_input("B B", 1)})
-                sub_b = st.checkbox("B aufteilen", True)
+                netzwerk_cfg.update({"d_b": st.number_input("Ø B", 13.2, key="d_b"), "l_b": st.number_input("L B", 150.0, key="l_b"), "b_b": st.number_input("B B", 1, key="b_b")})
+                sub_b = st.checkbox("B aufteilen", value=True, key="sub_b")
                 netzwerk_cfg.update({"sub_b": sub_b, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
                 if sub_b:
-                    netzwerk_cfg.update({"d_b1": st.number_input("Ø B1", 13.2), "l_b1": st.number_input("L B1", 200.0), "b_b1": 0,
-                                        "d_b2": st.number_input("Ø B2", 13.2), "l_b2": st.number_input("L B2", 200.0), "b_b2": 0})
+                    netzwerk_cfg.update({"d_b1": st.number_input("Ø B1", 13.2, key="d_b1"), "l_b1": st.number_input("L B1", 200.0, key="l_b1"), "b_b1": 0,
+                                        "d_b2": st.number_input("Ø B2", 13.2, key="d_b2"), "l_b2": st.number_input("L B2", 200.0, key="l_b2"), "b_b2": 0})
         else:
-            # Defaults für Single-Modul
             netzwerk_cfg.update({"d_a": 0, "l_a": 0, "b_a": 0, "sub_a": False, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0,
                                  "d_b": 0, "l_b": 0, "b_b": 0, "sub_b": False, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
 
-    # Dynamische Bestimmung der Membran-Anzahl
     _, m_namen, _ = berechne_feed_widerstaende(**netzwerk_cfg)
     anzahl_membranen = len(m_namen)
 
@@ -173,7 +170,6 @@ with st.sidebar:
 
 # --- 3. BERECHNUNGSLOGIK ---
 
-# Hydraulik-Paket schnüren
 hydraulik = analysiere_gesamte_topologie(
     saug_cfg, druck_cfg, netzwerk_cfg, 
     konz_zweige, konz_out, 
@@ -193,12 +189,40 @@ else:
     )
 
 # --- 4. MAIN WINDOW ---
-st.title("💧 RO-Anlagen Planer")
+col_title, col_btn = st.columns([3, 1])
+
+with col_title:
+    st.title("💧 RO-Anlagen Planer")
+
+with col_btn:
+    st.write("") # Spacer
+    with st.expander("💾 Profil Speichern / Laden", expanded=False):
+        uploaded_file = st.file_uploader("Profil laden (.json)", type=["json"], label_visibility="collapsed")
+        if uploaded_file is not None:
+            if st.button("Laden", use_container_width=True):
+                erfolg, msg = lade_konfiguration(uploaded_file)
+                if erfolg:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+                    
+        st.divider()
+        
+        aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_')}
+        json_string = exportiere_konfiguration(aktuelle_konfig)
+        
+        st.download_button(
+            label="Als .json exportieren",
+            data=json_string,
+            file_name="ro_anlagen_profil.json",
+            mime="application/json",
+            use_container_width=True
+        )
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
 else:
-    # PDF Export Vorbereitung (Nimmt exakt die Daten auf, die pdf_export.py erwartet)
     inputs_fuer_pdf = {
         "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
         "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
@@ -208,10 +232,10 @@ else:
         "perm_leitungen": perm_zweige, "perm_out": perm_out, "perm_schlauch": perm_schlauch
     }
     
-    col_title, col_btn = st.columns([4, 1])
     with col_btn:
+        st.write("") 
         pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
-        st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf")
+        st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf", use_container_width=True)
 
     st.subheader("📊 Performance")
     c1, c2, c3, c4 = st.columns(4)
