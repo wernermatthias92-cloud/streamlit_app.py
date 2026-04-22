@@ -1,6 +1,6 @@
 from hydraulik.netzwerk_solver import *
 
-def berechne_parallel_drossel(
+def simuliere_parallel_drossel(
     n_membranes,
     p_feed_bar,
     p_perm_bar,
@@ -34,7 +34,7 @@ def berechne_parallel_drossel(
             pipe_k(d_drossel, L_drossel, zeta=2.0)
         )
 
-    return solve_parallel_system(
+    result = solve_parallel_system(
         n=n_membranes,
         p_feed=p_feed,
         p_perm=p_perm,
@@ -43,3 +43,10 @@ def berechne_parallel_drossel(
         k_out_list=k_out_list,
         k_drossel_list=k_drossel_list
     )
+
+    return result
+
+
+# optional alias
+def berechne_parallel_drossel(*args, **kwargs):
+    return simuliere_parallel_drossel(*args, **kwargs)
