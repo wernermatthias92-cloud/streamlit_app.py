@@ -5,7 +5,7 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand
 from system.parallel import simuliere_parallel
 from system.parallel_drossel import simuliere_parallel_drossel
-from system.netzwerk import berechne_parallel_netzwerk
+from hydraulik.netzwerk import berechne_parallel_netzwerk # <-- HIER IST DIE KORREKTUR
 from utils.pdf_export import generiere_pdf
 
 st.set_page_config(page_title="RO-Anlagen Planer Pro", layout="wide")
