@@ -1,69 +1,62 @@
 import math
-from membrane.modell import berechne_tcf, berechne_a_wert
+from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert
 
 def berechne_drossel_druckabfall(flow_lh, drossel_mm):
-    # Verhindert Division durch 0.
     if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
     
     q_ms = (flow_lh / 1000) / 3600
     d_m = drossel_mm / 1000.0
     area_m2 = math.pi * (d_m / 2)**2
-    
-    # Reale physikalische Blenden-Gleichung (Cd = 0.6)
     c_d = 0.6
     v_spalt = q_ms / (area_m2 * c_d)
     
     delta_p_pa = (1000 * v_spalt**2) / 2
-    return delta_p_pa / 100000.0 # Umrechnung in bar
+    return delta_p_pa / 100000.0
 
 def berechne_pumpendruck(flow_lh, p_max, q_max):
-    # Parabolische Annäherung einer typischen Kreiselpumpe
     if flow_lh >= q_max: return 0.0
     return p_max * (1.0 - (flow_lh / q_max)**2)
 
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
-                               m_test_druck, m_rueckhalt, tds_feed, temp, p_max, q_max, p_zulauf):
+                               m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, p_max, q_max, p_zulauf):
     
     membran_namen = hydraulik['membran_namen']
     anzahl_membranen = len(membran_namen)
     if anzahl_membranen == 0: return {"error": "Keine Membranen gefunden."}
 
-    # 1. Wissenschaftliche Temperatur-Korrektur (TCF) und A-Wert
+    # 1. Wissenschaftliche Temperatur-Korrektur und A-Wert
     tcf_real = berechne_tcf(temp)
-    a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck)
+    tcf_salz = berechne_tcf_salz(temp)
+    a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
 
-    # Start-Grenzen für die Nullpunktsuche (Binäre Suche für den Feed)
+    salzdurchgang_basis = 1.0 - m_rueckhalt
+    salzdurchgang_real = salzdurchgang_basis * tcf_salz
+            
     feed_min = 5.0
     feed_max = min(20000.0, q_max * 0.99) 
     best_result = {"error": "Solver konnte kein Gleichgewicht finden."}
 
-    # Start-Annahmen für dynamische Aufteilung
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
     q_p_array = [(q_max * 0.2) / anzahl_membranen] * anzahl_membranen
-    tds_p_array = [tds_feed * (1 - m_rueckhalt)] * anzahl_membranen
+    tds_p_array = [tds_feed * salzdurchgang_real] * anzahl_membranen
 
     # 2. Äußere Schleife: Suche nach dem Gleichgewicht von Pumpe & Drossel
     for iteration in range(60): 
         q_feed_start_lh = (feed_min + feed_max) / 2
         q_ms = (q_feed_start_lh / 1000) / 3600
         
-        # Saugverlust und Pumpen-Leistung
         p_verlust_saug = (hydraulik['r_saug'] * q_ms**2) / 100000 
         p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
-        
         p_pumpen_boost = berechne_pumpendruck(q_feed_start_lh, p_max, q_max)
         p_aktuell = p_vor_pumpe + p_pumpen_boost
         
-        # Druck nach Hauptleitung (Verzweigungspunkt)
         p_verlust_druck_haupt = (hydraulik['r_druck_haupt'] * q_ms**2) / 100000
         p_split = p_aktuell - p_verlust_druck_haupt
         
-        # Sicherheitsabbruch bei zu starker Saugseite/Rohrreibung
         if p_split <= 0.5:
             feed_max = q_feed_start_lh
             continue
 
-        # Haupt-Gegendruck Permeat (Sammelrohr)
         total_permeat = sum(q_p_array)
         q_ms_p_total = (total_permeat / 1000) / 3600
         p_back_main = (hydraulik['r_p_out'] + hydraulik['r_p_schlauch']) * q_ms_p_total**2 / 100000 + hydraulik['p_back_height']
@@ -79,7 +72,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             q_p = q_p_array[i]
             tds_p = tds_p_array[i]
             
-            # Annäherung des Permeatflusses
             for _ in range(15):
                 if q_p > f_in * 0.95: q_p = f_in * 0.95 
                 if q_p < 0: q_p = 0
@@ -87,16 +79,14 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 q_c_temp = max(0.001, f_in - q_p)
                 recovery = q_p / f_in
                 
-                # CP-Effekt
                 tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c_temp
                 tds_avg = (tds_feed + tds_c_temp) / 2
                 cp_factor = math.exp(0.7 * recovery) 
                 tds_wall = tds_avg * cp_factor
                 
-                tds_p_target = tds_wall * (1 - m_rueckhalt)
+                tds_p_target = tds_wall * salzdurchgang_real
                 tds_p = tds_p * 0.5 + tds_p_target * 0.5
                 
-                # Individuelle Drücke für diesen Strang
                 q_ms_f_in = (f_in / 1000) / 3600
                 p_verlust_feed = (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
                 p_in = p_split - p_verlust_feed
@@ -123,7 +113,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             p_verlust_konz = (hydraulik['r_k_zweige'][i] * q_ms_c_i**2) / 100000
             p_nach_zweigen.append(p_in - p_verlust_spacer - p_verlust_konz)
             
-            # Leitwert-Berechnung für die Flussaufteilung in der nächsten Runde
             p_drop_branch = p_verlust_feed + p_verlust_spacer + p_verlust_konz
             r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
             r_eff_list.append(r_eff)
@@ -142,7 +131,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 "Konz. TDS (ppm)": round(tds_c, 0)
             })
 
-        # Wasser nach Widerstand neu verteilen
+        # Wasser neu verteilen
         sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
         flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
 
@@ -157,13 +146,11 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         p_verlust_drossel = berechne_drossel_druckabfall(end_konzentrat_flow, drossel_vorgabe_mm)
         restdruck_nach_ventil = p_vor_ventil - p_verlust_drossel
 
-        # Binäre Suche justieren
         if restdruck_nach_ventil > 0.0:
             feed_min = q_feed_start_lh
         else:
             feed_max = q_feed_start_lh
 
-        # Gesamtergebnisse der aktuellen Runde
         avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
         final_konzentrat_tds = (q_feed_start_lh * tds_feed - total_permeat_salzfracht) / end_konzentrat_flow if end_konzentrat_flow > 0 else tds_feed
 
