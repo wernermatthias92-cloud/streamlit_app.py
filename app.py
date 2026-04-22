@@ -17,7 +17,6 @@ if 'p_flow_lh' not in st.session_state:
     st.session_state.p_flow_lh = 568.0
 if 'p_flow_m3' not in st.session_state:
     st.session_state.p_flow_m3 = 13.63
-# NEU: Ein Zähler, um den Uploader nach dem Laden zurückzusetzen
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -26,19 +25,15 @@ def sync_m3():
 def sync_lh():
     st.session_state.p_flow_m3 = st.session_state.p_flow_lh * (24 / 1000)
 
-# --- CALLBACK FÜR DAS LADEN DES PROFILS ---
 def lade_profil_callback():
-    # Wir rufen den Uploader über seinen dynamischen Key auf
     aktueller_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
     if aktueller_uploader_key in st.session_state and st.session_state[aktueller_uploader_key] is not None:
         uploaded_file = st.session_state[aktueller_uploader_key]
         erfolg, msg = lade_konfiguration(uploaded_file)
         
         if erfolg:
-            # NEU: Eigene Erfolgsmeldung mit Dateinamen
             st.session_state.lade_msg = f"Konfiguration erfolgreich geladen! Aktuelle Konfiguration: **{uploaded_file.name}**"
             st.session_state.lade_erfolg = True
-            # NEU: Den Uploader-Key hochzählen, damit das Feld geleert wird!
             st.session_state.uploader_key += 1
         else:
             st.session_state.lade_msg = msg
@@ -218,13 +213,11 @@ with col_title:
 with col_btn:
     st.write("") # Spacer
     with st.expander("💾 Profil Speichern / Laden", expanded=False):
-        # NEU: Der Uploader bekommt einen dynamischen Key (z.B. profil_uploader_0, dann _1, etc.)
         dynamischer_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
         st.file_uploader("Profil laden (.json)", type=["json"], key=dynamischer_uploader_key, label_visibility="collapsed")
         
         st.button("Laden", use_container_width=True, on_click=lade_profil_callback)
         
-        # Erfolgsmeldung inkl. Dateiname anzeigen
         if "lade_msg" in st.session_state:
             if st.session_state.lade_erfolg:
                 st.success(st.session_state.lade_msg)
@@ -235,20 +228,18 @@ with col_btn:
                     
         st.divider()
         
-        # NEU: Textfeld für den Dateinamen beim Export
         wunsch_dateiname = st.text_input("Dateiname", value="ro_anlagen_profil")
         if not wunsch_dateiname.endswith(".json"):
             wunsch_dateiname += ".json"
             
         verbotene_keys = ["lade_msg", "lade_erfolg", "uploader_key"]
-        # Alle Variablen, die mit profil_uploader anfangen, werden ebenfalls gefiltert
         aktuelle_konfig = {k: v for k, v in st.session_state.items() if not k.startswith('_') and k not in verbotene_keys and not k.startswith("profil_uploader")}
         json_string = exportiere_konfiguration(aktuelle_konfig)
         
         st.download_button(
             label="Als .json exportieren",
             data=json_string,
-            file_name=wunsch_dateiname, # Wendet den Wunschnamen an
+            file_name=wunsch_dateiname,
             mime="application/json",
             use_container_width=True
         )
@@ -278,6 +269,9 @@ else:
     c4.metric("Konz. TDS", f"{ergebnisse['final_konzentrat_tds']:.0f} ppm")
 
     st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True)
+    
+    # NEU: Hinweis zum Flux
+    st.caption("💡 **Flux Info:** Ein Flux zwischen 15-25 LMH gilt bei Brunnenwasser als konservativ/sicher. Werte über 30 LMH erhöhen das Risiko für Scaling/Fouling massiv.")
     
     st.divider()
     st.subheader("🛑 Hydraulik & Drossel")
