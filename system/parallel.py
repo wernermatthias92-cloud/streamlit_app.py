@@ -53,7 +53,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             tds_avg = (tds_feed + tds_c_temp) / 2
             cp_factor = math.exp(0.7 * recovery) 
-            tds_wall = tds_avg * cp_factor
+            
+            # Schutz vor extremen Salzspitzen in der Iteration
+            tds_wall = min(tds_avg * cp_factor, 150000.0)
             
             tds_p_target = tds_wall * salzdurchgang_real
             tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
@@ -74,9 +76,15 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             pi_wall = (tds_wall / 100) * 0.07
             ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
             q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
-            q_p_array[i] = q_p * 0.5 + q_p_target * 0.5
             
-            q_ms_c_i = (q_c / 1000) / 3600
+            q_p_neu = q_p * 0.5 + q_p_target * 0.5
+            
+            # DER WICHTIGSTE SCHUTZ (Verhindert das Phänomen aus deinem Screenshot)
+            if q_p_neu > f_in * 0.95: q_p_neu = f_in * 0.95
+            q_p_array[i] = q_p_neu
+            
+            q_c_neu = max(0.001, f_in - q_p_neu)
+            q_ms_c_i = (q_c_neu / 1000) / 3600
             p_verlust_konz = (hydraulik['r_k_zweige'][i] * q_ms_c_i**2) / 100000
             
             p_drop_branch = p_verlust_feed + p_verlust_spacer + p_verlust_konz
@@ -96,9 +104,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     for i in range(anzahl_membranen):
         f_in = q_feed_start_lh * flow_fractions[i]
         q_p = q_p_array[i]
-        q_c = f_in - q_p
+        q_c = max(0.001, f_in - q_p)
         tds_p = tds_p_array[i]
-        tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
+        tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
         total_permeat_salzfracht += (q_p * tds_p)
         
         q_ms_f_in = (f_in / 1000) / 3600
@@ -121,8 +129,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         })
 
     avg_permeat_tds = total_permeat_salzfracht / total_permeat if total_permeat > 0 else 0
-    end_konzentrat_flow = q_feed_start_lh - total_permeat
-    final_konzentrat_tds = (q_feed_start_lh * tds_feed - total_permeat_salzfracht) / end_konzentrat_flow if end_konzentrat_flow > 0 else tds_feed
+    end_konzentrat_flow = max(0.001, q_feed_start_lh - total_permeat)
+    final_konzentrat_tds = (q_feed_start_lh * tds_feed - total_permeat_salzfracht) / end_konzentrat_flow
 
     p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
     q_ms_c_total = (end_konzentrat_flow / 1000) / 3600
