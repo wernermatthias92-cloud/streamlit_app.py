@@ -84,7 +84,6 @@ with st.sidebar:
         tds_feed = st.number_input("Feed TDS real (ppm)", value=96, key="tds_feed")
         temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13, key="temp")
         
-        # NEU: Modus für trockene Membranen
         trocken_modus = st.checkbox("Auslieferzustand: Trocken (Dry Membrane)", value=False, key="trocken_modus")
         
         st.divider()
@@ -218,12 +217,12 @@ hydraulik = analysiere_gesamte_topologie(
 if auslegungs_modus == "Ziel-Ausbeute vorgeben":
     ergebnisse = simuliere_parallel(
         hydraulik, ausbeute_pct, m_flaeche, m_test_flow_effektiv, 
-        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, p_system
+        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system
     )
 else:
     ergebnisse = simuliere_parallel_drossel(
         hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, 
-        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, 
+        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus,
         pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix
     )
 
@@ -270,14 +269,13 @@ with col_btn:
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
 else:
-    # --- TOLERANZ-BERECHNUNG (+-18%) ---
     tol = 0.18
     p_ideal = ergebnisse['total_permeat']
     k_ideal = ergebnisse['end_konzentrat_flow']
     f_total = ergebnisse['q_feed_start_lh']
     
     p_min = p_ideal * (1 - tol)
-    p_max = min(p_ideal * (1 + tol), f_total * 0.98) # Schutz: Toleranz-Permeat kann nicht größer als Feed sein
+    p_max = min(p_ideal * (1 + tol), f_total * 0.98) 
     
     k_at_pmin = max(0.0, f_total - p_min)
     k_at_pmax = max(0.0, f_total - p_max)
@@ -293,7 +291,6 @@ else:
     ptds_at_pmin, ktds_at_pmin = calc_tds_range(p_min, k_at_pmin)
     ptds_at_pmax, ktds_at_pmax = calc_tds_range(p_max, k_at_pmax)
 
-    # HIER fügen wir trocken_modus hinzu, falls wir es im PDF brauchen
     inputs_fuer_pdf = {
         "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
         "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
@@ -308,8 +305,10 @@ else:
         pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
         st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf", use_container_width=True)
 
-    # --- PERFORMANCE ANZEIGE (VERTIKAL MIT TOLERANZ) ---
     st.subheader("📊 Performance & Toleranzen (±18%)")
+    
+    if trocken_modus:
+        st.info("🏜️ **Trocken-Modus aktiv:** Permeabilität wurde um +15 % erhöht, Salzdurchgang um +5 %.")
     
     h1, h2, h3, h4 = st.columns([2, 1, 1, 1])
     h2.markdown("**Minimum (-18%)**")
@@ -335,7 +334,6 @@ else:
     
     st.divider()
     
-    # --- SICHERHEITS-CHECK (Delta P) ---
     st.subheader("🛡️ Sicherheits-Check & Hydraulik")
     dp = ergebnisse.get('max_spacer_dp', 0)
     
