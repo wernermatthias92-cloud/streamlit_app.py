@@ -122,7 +122,8 @@ with st.sidebar:
         }
         
         st.divider()
-        hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen", value=True, key="hat_t_stueck")
+        # HIER: default auf False gesetzt
+        hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen", value=False, key="hat_t_stueck")
         
         netzwerk_cfg = {"hat_t_stueck": hat_t_stueck}
         if hat_t_stueck:
@@ -152,7 +153,8 @@ with st.sidebar:
                     "l_b": st.number_input("L B", min_value=0.01, value=150.0, step=5.0, key="l_b"), 
                     "b_b": st.number_input("B B", min_value=0, value=1, key="b_b")
                 })
-                sub_b = st.checkbox("B aufteilen", value=True, key="sub_b")
+                # HIER: default auf False gesetzt
+                sub_b = st.checkbox("B aufteilen", value=False, key="sub_b")
                 netzwerk_cfg.update({"sub_b": sub_b, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
                 if sub_b:
                     netzwerk_cfg.update({
