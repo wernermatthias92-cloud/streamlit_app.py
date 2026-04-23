@@ -273,14 +273,17 @@ else:
     k_ideal = ergebnisse['end_konzentrat_flow']
     f_total = ergebnisse['q_feed_start_lh']
     
-    p_min, p_max = p_ideal * (1 - tol), p_ideal * (1 + tol)
-    k_at_pmin, k_at_pmax = f_total - p_min, f_total - p_max
+    p_min = p_ideal * (1 - tol)
+    p_max = min(p_ideal * (1 + tol), f_total * 0.98) # Schutz: Toleranz-Permeat kann nicht größer als Feed sein
+    
+    k_at_pmin = max(0.0, f_total - p_min)
+    k_at_pmax = max(0.0, f_total - p_max)
     
     def calc_tds_range(p_flow, k_flow):
         if p_flow + k_flow <= 0: return 0, 0
         rec = p_flow / (p_flow + k_flow)
         cf = 1 / (1 - rec) if rec < 1 else 10
-        p_tds = ergebnisse['total_permeat_tds'] * (cf / (1 / (1 - (p_ideal / f_total))))
+        p_tds = ergebnisse['total_permeat_tds'] * (cf / (1 / (1 - (p_ideal / f_total)))) if f_total > p_ideal else ergebnisse['total_permeat_tds']
         k_tds = (f_total * tds_feed - p_flow * p_tds) / k_flow if k_flow > 0 else tds_feed * cf
         return p_tds, k_tds
 
