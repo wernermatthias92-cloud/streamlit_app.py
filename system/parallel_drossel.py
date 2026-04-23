@@ -30,7 +30,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     # --- Trocken-Modus Korrektur ---
     if trocken_modus:
         a_wert *= 1.15
-        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.04))
+        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.03))
     else:
         salzdurchgang_basis = 1.0 - m_rueckhalt
 
