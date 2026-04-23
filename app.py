@@ -308,7 +308,7 @@ else:
     st.subheader("📊 Performance & Toleranzen (±18%)")
     
     if trocken_modus:
-        st.info("🏜️ **Trocken-Modus aktiv:** Permeabilität wurde um +15 % erhöht, Salzdurchgang um +5 %.")
+        st.info("🏜️ **Trocken-Modus aktiv:** Permeabilität wurde um +15 % erhöht, nomineller Rückhalt um -6 % reduziert (z.B. von 98 % auf 92 %).")
     
     h1, h2, h3, h4 = st.columns([2, 1, 1, 1])
     h2.markdown("**Minimum (-18%)**")
