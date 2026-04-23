@@ -128,6 +128,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     q_ms_c_total = (end_konzentrat_flow / 1000) / 3600
     p_vor_ventil = p_t_stueck_konz - (hydraulik['r_k_out'] * q_ms_c_total**2) / 100000
 
+    # Hier findet die fehlende Berechnung statt:
     abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
     empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
 
