@@ -16,7 +16,7 @@ def berechne_pumpendruck(flow_lh, p_max, q_max):
     return p_max * (1.0 - (flow_lh / q_max)**2)
 
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
-                               m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, 
+                               m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus,
                                pumpen_modus, p_max, q_max, p_zulauf, p_fix):
     
     membran_namen = hydraulik['membran_namen']
@@ -27,6 +27,12 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
     salzdurchgang_basis = 1.0 - m_rueckhalt
+
+    # --- NEU: Trocken-Modus Korrektur ---
+    if trocken_modus:
+        a_wert *= 1.15
+        salzdurchgang_basis *= 1.05
+
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
             
     feed_min = 5.0
@@ -84,7 +90,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 cp_factor = math.exp(0.7 * recovery) 
                 
                 tds_wall = min(tds_avg * cp_factor, 150000.0) 
-                
                 tds_p_target = tds_wall * salzdurchgang_real
                 tds_p = tds_p * 0.5 + tds_p_target * 0.5
                 
@@ -105,9 +110,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
                 q_p = q_p * 0.5 + q_p_target * 0.5
                 
-            # DER WICHTIGSTE SCHUTZ (Auch hier wieder eingefügt)
-            if q_p > f_in * 0.95: q_p = f_in * 0.95 
-            
+                if q_p > f_in * 0.95: q_p = f_in * 0.95 
+                
             q_p_array[i] = q_p
             tds_p_array[i] = tds_p
             q_c = max(0.001, f_in - q_p)
