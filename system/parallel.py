@@ -8,12 +8,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     tcf_real = berechne_tcf(temp)
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
+    
     salzdurchgang_basis = 1.0 - m_rueckhalt
 
-    # --- NEU: Trocken-Modus Korrektur ---
+    # --- Trocken-Modus Korrektur ---
     if trocken_modus:
-        a_wert *= 1.15                # 15% höherer Volumenstrom
-        salzdurchgang_basis *= 1.05   # 5% schlechtere Filterleistung (höherer Salzdurchgang)
+        a_wert *= 1.15                
+        salzdurchgang_basis *= 1.05   
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
 
