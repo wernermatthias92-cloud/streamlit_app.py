@@ -24,6 +24,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
     q_p_array = [q_p_total_approx / anzahl_membranen] * anzahl_membranen
     tds_p_array = [tds_feed * salzdurchgang_real] * anzahl_membranen
+    
+    max_spacer_dp = 0
 
     for iteration in range(40):
         q_ms_feed = (q_feed_start_lh / 1000) / 3600
@@ -36,6 +38,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_back_main = (hydraulik['r_p_out'] + hydraulik['r_p_schlauch']) * q_ms_p_total**2 / 100000 + hydraulik['p_back_height']
         
         r_eff_list = [] 
+        max_spacer_dp = 0
         
         for i in range(anzahl_membranen):
             f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
@@ -43,7 +46,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             tds_p = tds_p_array[i]
             
             if q_p > f_in * 0.95: q_p = f_in * 0.95
-            if q_p < 0: q_p = 0
             
             q_c = max(0.001, f_in - q_p)
             recovery = q_p / f_in
@@ -61,6 +63,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             p_in = p_split - p_verlust_feed
             
             p_verlust_spacer = 0.2 * (f_in / 1000)**1.5
+            if p_verlust_spacer > max_spacer_dp: max_spacer_dp = p_verlust_spacer
+            
             p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
             
             q_ms_p_i = (q_p / 1000) / 3600
@@ -95,28 +99,23 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         q_c = f_in - q_p
         tds_p = tds_p_array[i]
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c if q_c > 0 else tds_feed
-        
         total_permeat_salzfracht += (q_p * tds_p)
         
         q_ms_f_in = (f_in / 1000) / 3600
         p_in = p_split - (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
         p_back = p_back_main + (hydraulik['r_p_zweige'][i] * ((q_p/1000)/3600)**2) / 100000
-        
         p_spacer = 0.2 * (f_in / 1000)**1.5
         p_konz = (hydraulik['r_k_zweige'][i] * ((q_c/1000)/3600)**2) / 100000
         p_nach_zweigen.append(p_in - p_spacer - p_konz)
-        
-        # NEU: Flux Berechnung
         flux_lmh = q_p / m_flaeche
 
         membran_daten.append({
             "Membran": membran_namen[i],
             "Eingangsdruck (bar)": round(p_in, 2),
-            "Flux (LMH)": round(flux_lmh, 1), # <-- NEU hinzugefügt
+            "Flux (LMH)": round(flux_lmh, 1),
             "Permeat (l/h)": round(q_p, 1),
             "Gegendruck (bar)": round(p_back, 3),
             "Konzentrat (l/h)": round(q_c, 1),
-            "Feed TDS (ppm)": round(tds_feed, 0),
             "Permeat TDS (ppm)": round(tds_p, 1),
             "Konz. TDS (ppm)": round(tds_c, 0)
         })
@@ -139,11 +138,12 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         "total_permeat_tds": avg_permeat_tds,
         "final_konzentrat_tds": final_konzentrat_tds,
         "end_konzentrat_flow": end_konzentrat_flow,
+        "max_spacer_dp": max_spacer_dp,
         "membran_daten": membran_daten,
         "p_verlust_saug": p_verlust_saug,
         "p_verlust_druck_haupt": p_verlust_druck_haupt,
         "p_effektiv_start": p_split,
         "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
         "abzubauender_druck": abzubauender_druck,
-        "empfohlene_drossel_mm": empfohlene_drossel_mm
+        "empfohlene_drossel_mm": empfehle_drossel_mm
     }
