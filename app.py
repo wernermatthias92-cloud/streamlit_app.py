@@ -84,6 +84,9 @@ with st.sidebar:
         tds_feed = st.number_input("Feed TDS real (ppm)", value=96, key="tds_feed")
         temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13, key="temp")
         
+        # NEU: Modus für trockene Membranen
+        trocken_modus = st.checkbox("Auslieferzustand: Trocken (Dry Membrane)", value=False, key="trocken_modus")
+        
         st.divider()
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
             p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f", key="p_system_ziel")
@@ -122,7 +125,6 @@ with st.sidebar:
         }
         
         st.divider()
-        # HIER: default auf False gesetzt
         hat_t_stueck = st.checkbox("Hauptleitung durch T-Stück aufteilen", value=False, key="hat_t_stueck")
         
         netzwerk_cfg = {"hat_t_stueck": hat_t_stueck}
@@ -153,7 +155,6 @@ with st.sidebar:
                     "l_b": st.number_input("L B", min_value=0.01, value=150.0, step=5.0, key="l_b"), 
                     "b_b": st.number_input("B B", min_value=0, value=1, key="b_b")
                 })
-                # HIER: default auf False gesetzt
                 sub_b = st.checkbox("B aufteilen", value=False, key="sub_b")
                 netzwerk_cfg.update({"sub_b": sub_b, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
                 if sub_b:
@@ -292,10 +293,11 @@ else:
     ptds_at_pmin, ktds_at_pmin = calc_tds_range(p_min, k_at_pmin)
     ptds_at_pmax, ktds_at_pmax = calc_tds_range(p_max, k_at_pmax)
 
+    # HIER fügen wir trocken_modus hinzu, falls wir es im PDF brauchen
     inputs_fuer_pdf = {
         "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
         "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
-        "m_rueckhalt": m_rueckhalt, "tds_feed": tds_feed, "temp": temp, "p_system": p_system,
+        "m_rueckhalt": m_rueckhalt, "tds_feed": tds_feed, "temp": temp, "trocken_modus": trocken_modus, "p_system": p_system,
         "zuleitung_saug": saug_cfg, "zuleitung_druck": druck_cfg,
         "konz_leitungen": konz_zweige, "konz_out": konz_out,
         "perm_leitungen": perm_zweige, "perm_out": perm_out, "perm_schlauch": perm_schlauch
