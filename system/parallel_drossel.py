@@ -26,12 +26,13 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     tcf_real = berechne_tcf(temp)
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
-    salzdurchgang_basis = 1.0 - m_rueckhalt
 
     # --- Trocken-Modus Korrektur ---
     if trocken_modus:
         a_wert *= 1.15
-        salzdurchgang_basis *= 1.05
+        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.06))
+    else:
+        salzdurchgang_basis = 1.0 - m_rueckhalt
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
             
