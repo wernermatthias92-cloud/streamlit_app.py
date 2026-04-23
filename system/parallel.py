@@ -3,13 +3,18 @@ from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert
 from hydraulik.widerstand import empfehle_drossel_durchmesser
 
 def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
-                       m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, p_system):
+                       m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system):
     
     tcf_real = berechne_tcf(temp)
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
-    
     salzdurchgang_basis = 1.0 - m_rueckhalt
+
+    # --- NEU: Trocken-Modus Korrektur ---
+    if trocken_modus:
+        a_wert *= 1.15                # 15% höherer Volumenstrom
+        salzdurchgang_basis *= 1.05   # 5% schlechtere Filterleistung (höherer Salzdurchgang)
+
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
 
     membran_namen = hydraulik['membran_namen']
@@ -54,9 +59,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             tds_avg = (tds_feed + tds_c_temp) / 2
             cp_factor = math.exp(0.7 * recovery) 
             
-            # Schutz vor extremen Salzspitzen in der Iteration
             tds_wall = min(tds_avg * cp_factor, 150000.0)
-            
             tds_p_target = tds_wall * salzdurchgang_real
             tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
@@ -78,8 +81,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
             
             q_p_neu = q_p * 0.5 + q_p_target * 0.5
-            
-            # DER WICHTIGSTE SCHUTZ (Verhindert das Phänomen aus deinem Screenshot)
             if q_p_neu > f_in * 0.95: q_p_neu = f_in * 0.95
             q_p_array[i] = q_p_neu
             
