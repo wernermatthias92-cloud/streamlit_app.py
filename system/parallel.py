@@ -1,6 +1,6 @@
 import math
-from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert
-from hydraulik.widerstand import empfehle_drossel_durchmesser, berechne_hydraulischen_widerstand
+from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
+from hydraulik.widerstand import empfehle_drossel_durchmesser, berechne_hydraulischen_widerstand, berechne_spacer_dp
 
 def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system):
@@ -21,14 +21,15 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     if anzahl_membranen == 0:
         return {"error": "Keine Membranen im System definiert."}
 
-    # Lokale Helfer-Funktion für dynamischen Druckverlust
     def calc_dp(flow_lh, cfg):
         if flow_lh <= 0 or cfg.get('l', 0) <= 0: return 0.0
         r_val = berechne_hydraulischen_widerstand(flow_lh, cfg['d'], cfg['l'], temp, bögen=cfg.get('b', 0))
         q_ms = (flow_lh / 1000.0) / 3600.0
         return (r_val * q_ms**2) / 100000.0
 
-    ndp_approx = p_system - ((tds_feed / 100) * 0.07) - 0.5
+    # Initiale Schätzung
+    pi_feed_approx = berechne_osmotischen_druck(tds_feed, temp)
+    ndp_approx = p_system - pi_feed_approx - 0.5
     q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
 
@@ -44,7 +45,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_split = p_system - p_verlust_druck_haupt
         
         total_permeat = sum(q_p_array)
-        # Permeat-Gegendruck inkl. geodätischer Höhe (1m = 0.0981 bar)
         p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
         
         r_eff_list = [] 
@@ -58,17 +58,17 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             if q_p > f_in * 0.95: q_p = f_in * 0.95
             
             q_c = max(0.001, f_in - q_p)
-            recovery = q_p / f_in
             
             tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
             tds_avg = (tds_feed + tds_c_temp) / 2
-            cp_factor = math.exp(0.7 * recovery) 
+            
+            # 1. NEU: Exakte Filmtheorie anwenden
+            cp_factor = berechne_cp_faktor(q_p, f_in, q_c, temp, m_flaeche)
             
             tds_wall = min(tds_avg * cp_factor, 150000.0)
             tds_p_target = tds_wall * salzdurchgang_real
             tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
-            # --- DYNAMISCHE ROHRREIBUNG ---
             p_verlust_feed = 0.0
             for seg in hydraulik['feed_pfade'][i]:
                 seg_flow = f_in * seg['flow_factor']
@@ -76,7 +76,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 
             p_in = p_split - p_verlust_feed
             
-            p_verlust_spacer = 0.2 * (f_in / 1000)**1.5
+            # 2. NEU: Exakter Spacer-Druckverlust mit Viskosität
+            p_verlust_spacer = berechne_spacer_dp(f_in, q_c, temp)
             if p_verlust_spacer > max_spacer_dp: max_spacer_dp = p_verlust_spacer
             
             p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
@@ -84,7 +85,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             p_back_branch = calc_dp(q_p, hydraulik['p_zweige'][i])
             p_back_total = p_back_main + p_back_branch
             
-            pi_wall = (tds_wall / 100) * 0.07
+            # 3. NEU: Exakter osmotischer Druck nach van-'t-Hoff
+            pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+            
             ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
             q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
             
@@ -122,7 +125,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_in = p_split - p_verlust_feed
         
         p_back = p_back_main + calc_dp(q_p, hydraulik['p_zweige'][i])
-        p_spacer = 0.2 * (f_in / 1000)**1.5
+        p_spacer = berechne_spacer_dp(f_in, q_c, temp)
         p_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
         
         p_nach_zweigen.append(p_in - p_spacer - p_konz)
