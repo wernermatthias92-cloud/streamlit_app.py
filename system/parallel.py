@@ -52,8 +52,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_verlust_druck_haupt = calc_dp(q_feed_start_lh, hydraulik['druck_haupt'])
         p_split = p_system - p_verlust_druck_haupt
         
-        # --- NEU: INNERE STABILISIERUNGSSCHLEIFE ---
-        for inner_iter in range(10):
+        # --- NEU: ERWEITERTE STABILISIERUNGSSCHLEIFE ---
+        for inner_iter in range(30):
             total_permeat = sum(sum(m) for m in q_p_matrix)
             p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
             
@@ -83,8 +83,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     q_p_j = q_p_matrix[i][j]
                     tds_p_j = tds_p_matrix[i][j]
                     
-                    if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95
-                    
                     q_c_j = max(0.001, f_in_j - q_p_j)
                     tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
                     tds_avg = (tds_in_j + tds_c_temp) / 2.0
@@ -99,13 +97,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
                     
                     pi_wall = berechne_osmotischen_druck(tds_wall, temp)
-                    
                     ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
                     
                     q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                     
-                    q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
-                    if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95
+                    # --- DAS ABS-SYSTEM ---
+                    q_p_j_neu = q_p_j * 0.75 + q_p_target_j * 0.25
+                    if q_p_j_neu > f_in_j * 0.85: q_p_j_neu = f_in_j * 0.85
                     
                     q_p_matrix[i][j] = q_p_j_neu
                     q_p_sum += q_p_j_neu
@@ -131,7 +129,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 
             sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
             flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
-        # --- ENDE INNERE SCHLEIFE ---
         
         if ausbeute_pct > 0:
             q_feed_start_lh = sum(q_p_array) / (ausbeute_pct / 100)
