@@ -1,6 +1,6 @@
 import math
 from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
-from hydraulik.widerstand import empfehle_drossel_durchmesser, berechne_hydraulischen_widerstand, berechne_spacer_dp
+from hydraulik.widerstand import empfehle_drossel_durchmesser, berechne_hydraulischen_widerstand, berechne_spacer_dp_segment
 
 def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system):
@@ -27,16 +27,22 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         q_ms = (flow_lh / 1000.0) / 3600.0
         return (r_val * q_ms**2) / 100000.0
 
-    # Initiale Schätzung
+    n_seg = 10
+    area_seg = m_flaeche / n_seg
+
     pi_feed_approx = berechne_osmotischen_druck(tds_feed, temp)
     ndp_approx = p_system - pi_feed_approx - 0.5
     q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
 
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
-    q_p_array = [q_p_total_approx / anzahl_membranen] * anzahl_membranen
-    tds_p_array = [tds_feed * salzdurchgang_real] * anzahl_membranen
     
+    # Matrizen für die Scheiben (Membranen x Segmente)
+    q_p_matrix = [[(q_p_total_approx / anzahl_membranen) / n_seg] * n_seg for _ in range(anzahl_membranen)]
+    tds_p_matrix = [[tds_feed * salzdurchgang_real] * n_seg for _ in range(anzahl_membranen)]
+    
+    q_p_array = [0] * anzahl_membranen
+    tds_p_array = [0] * anzahl_membranen
     max_spacer_dp = 0
 
     for iteration in range(40):
@@ -44,7 +50,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_verlust_druck_haupt = calc_dp(q_feed_start_lh, hydraulik['druck_haupt'])
         p_split = p_system - p_verlust_druck_haupt
         
-        total_permeat = sum(q_p_array)
+        total_permeat = sum(sum(m) for m in q_p_matrix)
         p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
         
         r_eff_list = [] 
@@ -52,53 +58,70 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         
         for i in range(anzahl_membranen):
             f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
-            q_p = q_p_array[i]
-            tds_p = tds_p_array[i]
-            
-            if q_p > f_in * 0.95: q_p = f_in * 0.95
-            
-            q_c = max(0.001, f_in - q_p)
-            
-            tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
-            tds_avg = (tds_feed + tds_c_temp) / 2
-            
-            # 1. NEU: Exakte Filmtheorie anwenden
-            cp_factor = berechne_cp_faktor(q_p, f_in, q_c, temp, m_flaeche)
-            
-            tds_wall = min(tds_avg * cp_factor, 150000.0)
-            tds_p_target = tds_wall * salzdurchgang_real
-            tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
             p_verlust_feed = 0.0
             for seg in hydraulik['feed_pfade'][i]:
                 seg_flow = f_in * seg['flow_factor']
                 p_verlust_feed += calc_dp(seg_flow, seg)
                 
-            p_in = p_split - p_verlust_feed
+            p_in_j = p_split - p_verlust_feed
+            f_in_j = f_in
+            tds_in_j = tds_feed
             
-            # 2. NEU: Exakter Spacer-Druckverlust mit Viskosität
-            p_verlust_spacer = berechne_spacer_dp(f_in, q_c, temp)
-            if p_verlust_spacer > max_spacer_dp: max_spacer_dp = p_verlust_spacer
+            q_p_sum = 0
+            salzfracht_sum = 0
+            p_drop_spacer_total = 0
             
-            p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
-            
-            p_back_branch = calc_dp(q_p, hydraulik['p_zweige'][i])
+            p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
             p_back_total = p_back_main + p_back_branch
+
+            # --- DAS SCHEIBEN-MODELL (10 Schritte durch das Modul) ---
+            for j in range(n_seg):
+                q_p_j = q_p_matrix[i][j]
+                tds_p_j = tds_p_matrix[i][j]
+                
+                if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95
+                
+                q_c_j = max(0.001, f_in_j - q_p_j)
+                tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
+                tds_avg = (tds_in_j + tds_c_temp) / 2.0
+                
+                cp_factor = berechne_cp_faktor(q_p_j, f_in_j, q_c_j, temp, m_flaeche, area_seg)
+                tds_wall = min(tds_avg * cp_factor, 150000.0)
+                
+                tds_p_target = tds_wall * salzdurchgang_real
+                tds_p_matrix[i][j] = tds_p_j * 0.5 + tds_p_target * 0.5
+                
+                p_verlust_spacer_j = berechne_spacer_dp_segment(f_in_j, q_c_j, temp, n_seg)
+                p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
+                
+                pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+                
+                ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
+                q_p_target_j = area_seg * a_wert * ndp * tcf_real * 1000
+                
+                q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
+                if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95
+                
+                q_p_matrix[i][j] = q_p_j_neu
+                q_p_sum += q_p_j_neu
+                salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
+                p_drop_spacer_total += p_verlust_spacer_j
+                
+                # Update für die nächste Scheibe
+                f_in_neu = max(0.001, f_in_j - q_p_j_neu)
+                tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
+                f_in_j = f_in_neu
+                p_in_j -= p_verlust_spacer_j
+                
+            q_p_array[i] = q_p_sum
+            q_c = f_in_j
+            tds_p_array[i] = salzfracht_sum / q_p_sum if q_p_sum > 0 else 0
             
-            # 3. NEU: Exakter osmotischer Druck nach van-'t-Hoff
-            pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+            if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
             
-            ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
-            q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
-            
-            q_p_neu = q_p * 0.5 + q_p_target * 0.5
-            if q_p_neu > f_in * 0.95: q_p_neu = f_in * 0.95
-            q_p_array[i] = q_p_neu
-            
-            q_c_neu = max(0.001, f_in - q_p_neu)
-            p_verlust_konz = calc_dp(q_c_neu, hydraulik['k_zweige'][i])
-            
-            p_drop_branch = p_verlust_feed + p_verlust_spacer + p_verlust_konz
+            p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
+            p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
             q_ms_f_in = (f_in / 1000) / 3600
             r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
             r_eff_list.append(r_eff)
@@ -123,9 +146,10 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         
         p_verlust_feed = sum([calc_dp(f_in * seg['flow_factor'], seg) for seg in hydraulik['feed_pfade'][i]])
         p_in = p_split - p_verlust_feed
-        
         p_back = p_back_main + calc_dp(q_p, hydraulik['p_zweige'][i])
-        p_spacer = berechne_spacer_dp(f_in, q_c, temp)
+        
+        # Spacer-Druckverlust aus dem letzten Iterationsschritt nutzen
+        p_spacer = max_spacer_dp 
         p_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
         
         p_nach_zweigen.append(p_in - p_spacer - p_konz)
