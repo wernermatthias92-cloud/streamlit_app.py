@@ -32,12 +32,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
 
     pi_feed_approx = berechne_osmotischen_druck(tds_feed, temp)
     ndp_approx = p_system - pi_feed_approx - 0.5
-    q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
+    
+    # BEREINIGT: Das "* 1000" am Ende wurde entfernt, da a_wert nun l/h liefert
+    q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
 
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
     
-    # Matrizen für die Scheiben (Membranen x Segmente)
     q_p_matrix = [[(q_p_total_approx / anzahl_membranen) / n_seg] * n_seg for _ in range(anzahl_membranen)]
     tds_p_matrix = [[tds_feed * salzdurchgang_real] * n_seg for _ in range(anzahl_membranen)]
     
@@ -75,7 +76,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
             p_back_total = p_back_main + p_back_branch
 
-            # --- DAS SCHEIBEN-MODELL (10 Schritte durch das Modul) ---
             for j in range(n_seg):
                 q_p_j = q_p_matrix[i][j]
                 tds_p_j = tds_p_matrix[i][j]
@@ -98,7 +98,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 pi_wall = berechne_osmotischen_druck(tds_wall, temp)
                 
                 ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
-                q_p_target_j = area_seg * a_wert * ndp * tcf_real * 1000
+                
+                # BEREINIGT: Das "* 1000" wurde auch hier entfernt
+                q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                 
                 q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
                 if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95
@@ -108,7 +110,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
                 p_drop_spacer_total += p_verlust_spacer_j
                 
-                # Update für die nächste Scheibe
                 f_in_neu = max(0.001, f_in_j - q_p_j_neu)
                 tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
                 f_in_j = f_in_neu
@@ -148,7 +149,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         p_in = p_split - p_verlust_feed
         p_back = p_back_main + calc_dp(q_p, hydraulik['p_zweige'][i])
         
-        # Spacer-Druckverlust aus dem letzten Iterationsschritt nutzen
         p_spacer = max_spacer_dp 
         p_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
         
