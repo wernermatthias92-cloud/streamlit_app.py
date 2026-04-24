@@ -10,7 +10,9 @@ def berechne_drossel_druckabfall(flow_lh, drossel_mm, temp_c):
     q_ms = (flow_lh / 1000) / 3600
     d_m = drossel_mm / 1000.0
     area_m2 = math.pi * (d_m / 2)**2
-    c_d = 0.6
+    
+    # KALIBRIERT AUF 0.71 NACH REALEN MESSDATEN
+    c_d = 0.71 
     rho = get_dichte_wasser(temp_c)
     
     term = q_ms / (c_d * area_m2)
@@ -62,7 +64,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     max_spacer_dp = 0
 
     for iteration in range(60): 
-        # Konvergenz-Prüfung: Abbruch wenn Intervall-Grenzen sich bis auf 0.01 l/h genähert haben
+        # Konvergenz-Prüfung
         if abs(feed_max - feed_min) < 0.01:
             break
             
