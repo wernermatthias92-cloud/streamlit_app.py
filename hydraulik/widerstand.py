@@ -30,16 +30,18 @@ def berechne_hydraulischen_widerstand(flow_lh, d_mm, l_mm, temp_c, k_mm=0.007, b
     if v == 0: return 0
     re = (v * d_m) / get_viskositaet_wasser(temp_c)
     lam = berechne_reibungszahl(re, d_mm, k_mm)
-    rho = get_dichte_wasser(temp_c) # DYNAMISCHE DICHTE
+    rho = get_dichte_wasser(temp_c) 
     r_wert = (lam * (l_m / d_m) + (bögen * 0.4)) * (rho / (2 * area**2))
     return r_wert
 
 def empfehle_drossel_durchmesser(flow_lh, delta_p_bar, temp_c):
     if flow_lh <= 0 or delta_p_bar <= 0: return 0
     q_ms, delta_p_pa = (flow_lh / 1000.0) / 3600.0, delta_p_bar * 100000.0
-    rho = get_dichte_wasser(temp_c) # DYNAMISCHE DICHTE
+    rho = get_dichte_wasser(temp_c) 
     v_theo = math.sqrt(2 * delta_p_pa / rho)
-    area_needed = q_ms / (0.61 * v_theo)
+    
+    # KALIBRIERT AUF 0.71 NACH REALEN MESSDATEN
+    area_needed = q_ms / (0.71 * v_theo) 
     return math.sqrt(4 * area_needed / math.pi) * 1000.0
 
 def berechne_spacer_dp_segment(q_in_lh, q_c_lh, temp_c, n_seg):
