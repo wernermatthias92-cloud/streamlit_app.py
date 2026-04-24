@@ -80,8 +80,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             feed_max = q_feed_start_lh
             continue
 
-        # --- NEU: INNERE STABILISIERUNGSSCHLEIFE FÜR DIE MEMBRANSCHEIBEN ---
-        for inner_iter in range(10):
+        # --- NEU: ERWEITERTE STABILISIERUNGSSCHLEIFE (30 Iterationen) ---
+        for inner_iter in range(30):
             total_permeat = sum(sum(m) for m in q_p_matrix)
             p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
             
@@ -114,8 +114,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                     q_p_j = q_p_matrix[i][j]
                     tds_p_j = tds_p_matrix[i][j]
                     
-                    if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95 
-                    
                     q_c_j = max(0.001, f_in_j - q_p_j)
                     tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
                     tds_avg = (tds_in_j + tds_c_temp) / 2.0
@@ -130,13 +128,15 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                     p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
                     
                     pi_wall = berechne_osmotischen_druck(tds_wall, temp)
-                    
                     ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
                     
                     q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                     
-                    q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
-                    if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95 
+                    # --- DAS ABS-SYSTEM: Extreme Unterrelaxation (0.75 auf alten Wert, nur 0.25 auf neuen) ---
+                    q_p_j_neu = q_p_j * 0.75 + q_p_target_j * 0.25
+                    
+                    # Sanfterer Cap bei 85% statt 95%, um mathematische Singularitäten zu vermeiden
+                    if q_p_j_neu > f_in_j * 0.85: q_p_j_neu = f_in_j * 0.85 
                     
                     q_p_matrix[i][j] = q_p_j_neu
                     q_p_sum += q_p_j_neu
@@ -162,8 +162,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
                 r_eff_list.append(r_eff)
                 
-                # Nur im letzten Durchlauf der inneren Schleife die Daten für das UI speichern
-                if inner_iter == 9:
+                if inner_iter == 29:
                     tds_c = tds_in_j 
                     total_permeat_salzfracht += salzfracht_sum
                     flux_lmh = q_p_sum / m_flaeche
@@ -182,8 +181,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
             flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
         
-        # --- ENDE INNERE SCHLEIFE ---
-
         total_permeat = sum(q_p_array)
         end_konzentrat_flow = max(0.001, q_feed_start_lh - total_permeat)
         p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
