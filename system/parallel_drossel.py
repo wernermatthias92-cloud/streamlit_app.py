@@ -103,7 +103,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
             p_back_total = p_back_main + p_back_branch
 
-            # --- DAS SCHEIBEN-MODELL ---
             for j in range(n_seg):
                 q_p_j = q_p_matrix[i][j]
                 tds_p_j = tds_p_matrix[i][j]
@@ -126,7 +125,9 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 pi_wall = berechne_osmotischen_druck(tds_wall, temp)
                 
                 ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
-                q_p_target_j = area_seg * a_wert * ndp * tcf_real * 1000
+                
+                # BEREINIGT: "* 1000" entfernt
+                q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                 
                 q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
                 if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95 
@@ -136,7 +137,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
                 p_drop_spacer_total += p_verlust_spacer_j
                 
-                # Update für die nächste Scheibe
                 f_in_neu = max(0.001, f_in_j - q_p_j_neu)
                 tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
                 f_in_j = f_in_neu
@@ -149,14 +149,14 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
             
             p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
-            p_nach_zweigen.append(p_in_j - p_verlust_konz) # p_in_j ist nach der Schleife der Druck AM ENDE des Spacers
+            p_nach_zweigen.append(p_in_j - p_verlust_konz)
             
             p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
             q_ms_f_in = (f_in / 1000) / 3600
             r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
             r_eff_list.append(r_eff)
             
-            tds_c = tds_in_j # Am Ende des Moduls ist das Feed das Konzentrat
+            tds_c = tds_in_j 
             total_permeat_salzfracht += salzfracht_sum
             flux_lmh = q_p_sum / m_flaeche
             
@@ -178,6 +178,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         total_permeat = sum(q_p_array)
         end_konzentrat_flow = max(0.001, q_feed_start_lh - total_permeat)
         p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
+        
         p_vor_ventil = p_t_stueck_konz - calc_dp(end_konzentrat_flow, hydraulik['k_out'])
         p_verlust_drossel = berechne_drossel_druckabfall(end_konzentrat_flow, drossel_vorgabe_mm)
         restdruck_nach_ventil = p_vor_ventil - p_verlust_drossel
