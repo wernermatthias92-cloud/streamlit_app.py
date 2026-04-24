@@ -12,7 +12,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     salzdurchgang_basis = 1.0 - m_rueckhalt
     if trocken_modus:
         a_wert *= 1.15                
-        # Anpassung auf 2.5% (0.025)
         salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
@@ -47,93 +46,95 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     max_spacer_dp = 0
 
     for iteration in range(40):
-        q_feed_alt = q_feed_start_lh # Für Konvergenz-Prüfung speichern
+        q_feed_alt = q_feed_start_lh 
         
         p_verlust_saug = calc_dp(q_feed_start_lh, hydraulik['saug'])
         p_verlust_druck_haupt = calc_dp(q_feed_start_lh, hydraulik['druck_haupt'])
         p_split = p_system - p_verlust_druck_haupt
         
-        total_permeat = sum(sum(m) for m in q_p_matrix)
-        p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
-        
-        r_eff_list = [] 
-        max_spacer_dp = 0
-        
-        for i in range(anzahl_membranen):
-            f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
+        # --- NEU: INNERE STABILISIERUNGSSCHLEIFE ---
+        for inner_iter in range(10):
+            total_permeat = sum(sum(m) for m in q_p_matrix)
+            p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
             
-            p_verlust_feed = 0.0
-            for seg in hydraulik['feed_pfade'][i]:
-                seg_flow = f_in * seg['flow_factor']
-                p_verlust_feed += calc_dp(seg_flow, seg)
+            r_eff_list = [] 
+            max_spacer_dp = 0
+            
+            for i in range(anzahl_membranen):
+                f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
                 
-            p_in_j = p_split - p_verlust_feed
-            f_in_j = f_in
-            tds_in_j = tds_feed
-            
-            q_p_sum = 0
-            salzfracht_sum = 0
-            p_drop_spacer_total = 0
-            
-            p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
-            p_back_total = p_back_main + p_back_branch
+                p_verlust_feed = 0.0
+                for seg in hydraulik['feed_pfade'][i]:
+                    seg_flow = f_in * seg['flow_factor']
+                    p_verlust_feed += calc_dp(seg_flow, seg)
+                    
+                p_in_j = p_split - p_verlust_feed
+                f_in_j = f_in
+                tds_in_j = tds_feed
+                
+                q_p_sum = 0
+                salzfracht_sum = 0
+                p_drop_spacer_total = 0
+                
+                p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
+                p_back_total = p_back_main + p_back_branch
 
-            for j in range(n_seg):
-                q_p_j = q_p_matrix[i][j]
-                tds_p_j = tds_p_matrix[i][j]
+                for j in range(n_seg):
+                    q_p_j = q_p_matrix[i][j]
+                    tds_p_j = tds_p_matrix[i][j]
+                    
+                    if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95
+                    
+                    q_c_j = max(0.001, f_in_j - q_p_j)
+                    tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
+                    tds_avg = (tds_in_j + tds_c_temp) / 2.0
+                    
+                    cp_factor = berechne_cp_faktor(q_p_j, f_in_j, q_c_j, temp, m_flaeche, area_seg)
+                    tds_wall = min(tds_avg * cp_factor, 150000.0)
+                    
+                    tds_p_target = tds_wall * salzdurchgang_real
+                    tds_p_matrix[i][j] = tds_p_j * 0.5 + tds_p_target * 0.5
+                    
+                    p_verlust_spacer_j = berechne_spacer_dp_segment(f_in_j, q_c_j, temp, n_seg)
+                    p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
+                    
+                    pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+                    
+                    ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
+                    
+                    q_p_target_j = area_seg * a_wert * ndp * tcf_real 
+                    
+                    q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
+                    if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95
+                    
+                    q_p_matrix[i][j] = q_p_j_neu
+                    q_p_sum += q_p_j_neu
+                    salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
+                    p_drop_spacer_total += p_verlust_spacer_j
+                    
+                    f_in_neu = max(0.001, f_in_j - q_p_j_neu)
+                    tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
+                    f_in_j = f_in_neu
+                    p_in_j -= p_verlust_spacer_j
+                    
+                q_p_array[i] = q_p_sum
+                q_c = f_in_j
+                tds_p_array[i] = salzfracht_sum / q_p_sum if q_p_sum > 0 else 0
                 
-                if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95
+                if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
                 
-                q_c_j = max(0.001, f_in_j - q_p_j)
-                tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
-                tds_avg = (tds_in_j + tds_c_temp) / 2.0
+                p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
+                p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
+                q_ms_f_in = (f_in / 1000) / 3600
+                r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
+                r_eff_list.append(r_eff)
                 
-                cp_factor = berechne_cp_faktor(q_p_j, f_in_j, q_c_j, temp, m_flaeche, area_seg)
-                tds_wall = min(tds_avg * cp_factor, 150000.0)
-                
-                tds_p_target = tds_wall * salzdurchgang_real
-                tds_p_matrix[i][j] = tds_p_j * 0.5 + tds_p_target * 0.5
-                
-                p_verlust_spacer_j = berechne_spacer_dp_segment(f_in_j, q_c_j, temp, n_seg)
-                p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
-                
-                pi_wall = berechne_osmotischen_druck(tds_wall, temp)
-                
-                ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
-                
-                q_p_target_j = area_seg * a_wert * ndp * tcf_real 
-                
-                q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
-                if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95
-                
-                q_p_matrix[i][j] = q_p_j_neu
-                q_p_sum += q_p_j_neu
-                salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
-                p_drop_spacer_total += p_verlust_spacer_j
-                
-                f_in_neu = max(0.001, f_in_j - q_p_j_neu)
-                tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
-                f_in_j = f_in_neu
-                p_in_j -= p_verlust_spacer_j
-                
-            q_p_array[i] = q_p_sum
-            q_c = f_in_j
-            tds_p_array[i] = salzfracht_sum / q_p_sum if q_p_sum > 0 else 0
-            
-            if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
-            
-            p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
-            p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
-            q_ms_f_in = (f_in / 1000) / 3600
-            r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
-            r_eff_list.append(r_eff)
-            
-        sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
-        flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
+            sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
+            flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
+        # --- ENDE INNERE SCHLEIFE ---
         
         if ausbeute_pct > 0:
             q_feed_start_lh = sum(q_p_array) / (ausbeute_pct / 100)
-            # Konvergenz-Prüfung: Abbruch wenn Residuum < 0.01 l/h
             if abs(q_feed_start_lh - q_feed_alt) < 0.01:
                 break
 
