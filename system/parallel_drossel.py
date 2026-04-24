@@ -3,15 +3,10 @@ from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, be
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp_segment, get_dichte_wasser
 
 def berechne_drossel_druckabfall(flow_lh, drossel_mm, temp_c):
-    """
-    KORRIGIERTE BLENDEN-GLEICHUNG: Delta P = (Q / (Cd * A))^2 * (rho / 2)
-    """
     if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
     q_ms = (flow_lh / 1000) / 3600
     d_m = drossel_mm / 1000.0
     area_m2 = math.pi * (d_m / 2)**2
-    
-    # KALIBRIERT AUF 0.71 NACH REALEN MESSDATEN
     c_d = 0.71 
     rho = get_dichte_wasser(temp_c)
     
@@ -64,7 +59,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     max_spacer_dp = 0
 
     for iteration in range(60): 
-        # Konvergenz-Prüfung
         if abs(feed_max - feed_min) < 0.01:
             break
             
@@ -86,105 +80,110 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             feed_max = q_feed_start_lh
             continue
 
-        total_permeat = sum(sum(m) for m in q_p_matrix)
-        p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
+        # --- NEU: INNERE STABILISIERUNGSSCHLEIFE FÜR DIE MEMBRANSCHEIBEN ---
+        for inner_iter in range(10):
+            total_permeat = sum(sum(m) for m in q_p_matrix)
+            p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
+            
+            r_eff_list = []
+            p_nach_zweigen = []
+            membran_daten_temp = []
+            total_permeat_salzfracht = 0
+            max_spacer_dp = 0
+
+            for i in range(anzahl_membranen):
+                f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
+                
+                p_verlust_feed = 0.0
+                for seg in hydraulik['feed_pfade'][i]:
+                    seg_flow = f_in * seg['flow_factor']
+                    p_verlust_feed += calc_dp(seg_flow, seg)
+                    
+                p_in_j = p_split - p_verlust_feed
+                f_in_j = f_in
+                tds_in_j = tds_feed
+                
+                q_p_sum = 0
+                salzfracht_sum = 0
+                p_drop_spacer_total = 0
+                
+                p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
+                p_back_total = p_back_main + p_back_branch
+
+                for j in range(n_seg):
+                    q_p_j = q_p_matrix[i][j]
+                    tds_p_j = tds_p_matrix[i][j]
+                    
+                    if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95 
+                    
+                    q_c_j = max(0.001, f_in_j - q_p_j)
+                    tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
+                    tds_avg = (tds_in_j + tds_c_temp) / 2.0
+                    
+                    cp_factor = berechne_cp_faktor(q_p_j, f_in_j, q_c_j, temp, m_flaeche, area_seg)
+                    tds_wall = min(tds_avg * cp_factor, 150000.0) 
+                    
+                    tds_p_target = tds_wall * salzdurchgang_real
+                    tds_p_matrix[i][j] = tds_p_j * 0.5 + tds_p_target * 0.5
+                    
+                    p_verlust_spacer_j = berechne_spacer_dp_segment(f_in_j, q_c_j, temp, n_seg)
+                    p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
+                    
+                    pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+                    
+                    ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
+                    
+                    q_p_target_j = area_seg * a_wert * ndp * tcf_real 
+                    
+                    q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
+                    if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95 
+                    
+                    q_p_matrix[i][j] = q_p_j_neu
+                    q_p_sum += q_p_j_neu
+                    salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
+                    p_drop_spacer_total += p_verlust_spacer_j
+                    
+                    f_in_neu = max(0.001, f_in_j - q_p_j_neu)
+                    tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
+                    f_in_j = f_in_neu
+                    p_in_j -= p_verlust_spacer_j
+                    
+                q_p_array[i] = q_p_sum
+                q_c = f_in_j
+                tds_p_array[i] = salzfracht_sum / q_p_sum if q_p_sum > 0 else 0
+                
+                if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
+                
+                p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
+                p_nach_zweigen.append(p_in_j - p_verlust_konz)
+                
+                p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
+                q_ms_f_in = (f_in / 1000) / 3600
+                r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
+                r_eff_list.append(r_eff)
+                
+                # Nur im letzten Durchlauf der inneren Schleife die Daten für das UI speichern
+                if inner_iter == 9:
+                    tds_c = tds_in_j 
+                    total_permeat_salzfracht += salzfracht_sum
+                    flux_lmh = q_p_sum / m_flaeche
+                    membran_daten_temp.append({
+                        "Membran": membran_namen[i],
+                        "Eingangsdruck (bar)": round(p_split - p_verlust_feed, 2),
+                        "Flux (LMH)": round(flux_lmh, 1),
+                        "Permeat (l/h)": round(q_p_sum, 1),
+                        "Gegendruck (bar)": round(p_back_total, 3),
+                        "Konzentrat (l/h)": round(q_c, 1),
+                        "Feed TDS (ppm)": round(tds_feed, 0),
+                        "Permeat TDS (ppm)": round(tds_p_array[i], 1),
+                        "Konz. TDS (ppm)": round(tds_c, 0)
+                    })
+
+            sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
+            flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
         
-        r_eff_list = []
-        p_nach_zweigen = []
-        membran_daten_temp = []
-        total_permeat_salzfracht = 0
-        max_spacer_dp = 0
+        # --- ENDE INNERE SCHLEIFE ---
 
-        for i in range(anzahl_membranen):
-            f_in = max(0.001, q_feed_start_lh * flow_fractions[i])
-            
-            p_verlust_feed = 0.0
-            for seg in hydraulik['feed_pfade'][i]:
-                seg_flow = f_in * seg['flow_factor']
-                p_verlust_feed += calc_dp(seg_flow, seg)
-                
-            p_in_j = p_split - p_verlust_feed
-            f_in_j = f_in
-            tds_in_j = tds_feed
-            
-            q_p_sum = 0
-            salzfracht_sum = 0
-            p_drop_spacer_total = 0
-            
-            p_back_branch = calc_dp(sum(q_p_matrix[i]), hydraulik['p_zweige'][i])
-            p_back_total = p_back_main + p_back_branch
-
-            for j in range(n_seg):
-                q_p_j = q_p_matrix[i][j]
-                tds_p_j = tds_p_matrix[i][j]
-                
-                if q_p_j > f_in_j * 0.95: q_p_j = f_in_j * 0.95 
-                
-                q_c_j = max(0.001, f_in_j - q_p_j)
-                tds_c_temp = ((f_in_j * tds_in_j) - (q_p_j * tds_p_j)) / q_c_j
-                tds_avg = (tds_in_j + tds_c_temp) / 2.0
-                
-                cp_factor = berechne_cp_faktor(q_p_j, f_in_j, q_c_j, temp, m_flaeche, area_seg)
-                tds_wall = min(tds_avg * cp_factor, 150000.0) 
-                
-                tds_p_target = tds_wall * salzdurchgang_real
-                tds_p_matrix[i][j] = tds_p_j * 0.5 + tds_p_target * 0.5
-                
-                p_verlust_spacer_j = berechne_spacer_dp_segment(f_in_j, q_c_j, temp, n_seg)
-                p_eff_mitte = p_in_j - (p_verlust_spacer_j / 2)
-                
-                pi_wall = berechne_osmotischen_druck(tds_wall, temp)
-                
-                ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
-                
-                q_p_target_j = area_seg * a_wert * ndp * tcf_real 
-                
-                q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
-                if q_p_j_neu > f_in_j * 0.95: q_p_j_neu = f_in_j * 0.95 
-                
-                q_p_matrix[i][j] = q_p_j_neu
-                q_p_sum += q_p_j_neu
-                salzfracht_sum += (q_p_j_neu * tds_p_matrix[i][j])
-                p_drop_spacer_total += p_verlust_spacer_j
-                
-                f_in_neu = max(0.001, f_in_j - q_p_j_neu)
-                tds_in_j = ((f_in_j * tds_in_j) - (q_p_j_neu * tds_p_matrix[i][j])) / f_in_neu
-                f_in_j = f_in_neu
-                p_in_j -= p_verlust_spacer_j
-                
-            q_p_array[i] = q_p_sum
-            q_c = f_in_j
-            tds_p_array[i] = salzfracht_sum / q_p_sum if q_p_sum > 0 else 0
-            
-            if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
-            
-            p_verlust_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
-            p_nach_zweigen.append(p_in_j - p_verlust_konz)
-            
-            p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
-            q_ms_f_in = (f_in / 1000) / 3600
-            r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
-            r_eff_list.append(r_eff)
-            
-            tds_c = tds_in_j 
-            total_permeat_salzfracht += salzfracht_sum
-            flux_lmh = q_p_sum / m_flaeche
-            
-            membran_daten_temp.append({
-                "Membran": membran_namen[i],
-                "Eingangsdruck (bar)": round(p_split - p_verlust_feed, 2),
-                "Flux (LMH)": round(flux_lmh, 1),
-                "Permeat (l/h)": round(q_p_sum, 1),
-                "Gegendruck (bar)": round(p_back_total, 3),
-                "Konzentrat (l/h)": round(q_c, 1),
-                "Feed TDS (ppm)": round(tds_feed, 0),
-                "Permeat TDS (ppm)": round(tds_p_array[i], 1),
-                "Konz. TDS (ppm)": round(tds_c, 0)
-            })
-
-        sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
-        flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
-        
         total_permeat = sum(q_p_array)
         end_konzentrat_flow = max(0.001, q_feed_start_lh - total_permeat)
         p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
