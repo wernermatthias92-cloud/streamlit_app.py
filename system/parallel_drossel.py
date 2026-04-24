@@ -1,6 +1,6 @@
 import math
-from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert
-from hydraulik.widerstand import berechne_hydraulischen_widerstand
+from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
+from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp
 
 def berechne_drossel_druckabfall(flow_lh, drossel_mm):
     if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
@@ -87,17 +87,17 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             for _ in range(15):
                 if q_p > f_in * 0.95: q_p = f_in * 0.95 
                 q_c_temp = max(0.001, f_in - q_p)
-                recovery = q_p / f_in
                 
                 tds_c_temp = ((f_in * tds_feed) - (q_p * tds_p)) / q_c_temp
                 tds_avg = (tds_feed + tds_c_temp) / 2
-                cp_factor = math.exp(0.7 * recovery) 
+                
+                # Exakte Filmtheorie
+                cp_factor = berechne_cp_faktor(q_p, f_in, q_c_temp, temp, m_flaeche)
                 
                 tds_wall = min(tds_avg * cp_factor, 150000.0) 
                 tds_p_target = tds_wall * salzdurchgang_real
                 tds_p = tds_p * 0.5 + tds_p_target * 0.5
                 
-                # --- DYNAMISCHE ROHRREIBUNG ---
                 p_verlust_feed = 0.0
                 for seg in hydraulik['feed_pfade'][i]:
                     seg_flow = f_in * seg['flow_factor']
@@ -105,14 +105,17 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                     
                 p_in = p_split - p_verlust_feed
                 
-                p_verlust_spacer = 0.2 * (f_in / 1000)**1.5
+                # Exakter Spacer-Druckverlust
+                p_verlust_spacer = berechne_spacer_dp(f_in, q_c_temp, temp)
                 if p_verlust_spacer > max_spacer_dp: max_spacer_dp = p_verlust_spacer
                 
                 p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
                 p_back_branch = calc_dp(q_p, hydraulik['p_zweige'][i])
                 p_back_total = p_back_main + p_back_branch
                 
-                pi_wall = (tds_wall / 100) * 0.07
+                # Exakter osmotischer Druck
+                pi_wall = berechne_osmotischen_druck(tds_wall, temp)
+                
                 ndp = max(0.0, p_effektiv_mitte - pi_wall - p_back_total)
                 q_p_target = m_flaeche * a_wert * ndp * tcf_real * 1000
                 q_p = q_p * 0.5 + q_p_target * 0.5
