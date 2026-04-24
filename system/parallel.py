@@ -12,7 +12,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     salzdurchgang_basis = 1.0 - m_rueckhalt
     if trocken_modus:
         a_wert *= 1.15                
-        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.06))
+        # Anpassung auf 2.5% (0.025)
+        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
 
@@ -33,8 +34,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     pi_feed_approx = berechne_osmotischen_druck(tds_feed, temp)
     ndp_approx = p_system - pi_feed_approx - 0.5
     
-    # BEREINIGT: Das "* 1000" am Ende wurde entfernt, da a_wert nun l/h liefert
-    q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real
+    q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real 
     q_feed_start_lh = q_p_total_approx / (ausbeute_pct / 100) if ausbeute_pct > 0 else q_p_total_approx * 2
 
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
@@ -47,6 +47,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     max_spacer_dp = 0
 
     for iteration in range(40):
+        q_feed_alt = q_feed_start_lh # Für Konvergenz-Prüfung speichern
+        
         p_verlust_saug = calc_dp(q_feed_start_lh, hydraulik['saug'])
         p_verlust_druck_haupt = calc_dp(q_feed_start_lh, hydraulik['druck_haupt'])
         p_split = p_system - p_verlust_druck_haupt
@@ -99,7 +101,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 
                 ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
                 
-                # BEREINIGT: Das "* 1000" wurde auch hier entfernt
                 q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                 
                 q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
@@ -132,6 +133,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         
         if ausbeute_pct > 0:
             q_feed_start_lh = sum(q_p_array) / (ausbeute_pct / 100)
+            # Konvergenz-Prüfung: Abbruch wenn Residuum < 0.01 l/h
+            if abs(q_feed_start_lh - q_feed_alt) < 0.01:
+                break
 
     membran_daten = []
     total_permeat_salzfracht = 0
@@ -174,7 +178,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     p_vor_ventil = p_t_stueck_konz - calc_dp(end_konzentrat_flow, hydraulik['k_out'])
 
     abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
-    empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
+    empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck, temp)
 
     return {
         "error": None,
