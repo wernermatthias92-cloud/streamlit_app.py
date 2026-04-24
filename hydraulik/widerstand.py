@@ -52,21 +52,21 @@ def empfehle_drossel_durchmesser(flow_lh, delta_p_bar):
     diameter_m = math.sqrt(4 * area_needed / math.pi)
     return diameter_m * 1000.0
 
-def berechne_spacer_dp(q_in_lh, q_c_lh, temp_c):
+def berechne_spacer_dp_segment(q_in_lh, q_c_lh, temp_c, n_seg):
     """
-    Berechnet den dynamischen Druckverlust im Spacer (Delta P Modul).
-    Berücksichtigt den mittleren Fluss und die Viskosität des Wassers.
+    Berechnet den dynamischen Druckverlust für EIN Membran-Segment (Scheibe).
     """
     q_avg = (q_in_lh + q_c_lh) / 2.0
     if q_avg <= 0: return 0.0
     
     nu_t = get_viskositaet_wasser(temp_c)
-    nu_25 = 0.89e-6 # Referenz bei 25°C
+    nu_25 = 0.89e-6 
     
-    # Basis-Druckverlust bei 25°C
-    dp_basis = 0.2 * (q_avg / 1000.0)**1.5
+    # Basis-Druckverlust bei 25°C für das GESAMTE Modul
+    dp_basis_total = 0.2 * (q_avg / 1000.0)**1.5
     
-    # Zäheres Wasser (kalt) erzeugt deutlich mehr Reibung im Spacer-Netz
+    # Temperaturkorrektur
     visco_korrektur = math.sqrt(nu_t / nu_25)
     
-    return dp_basis * visco_korrektur
+    # Auf das Segment (z.B. 1/10 der Länge) herunterrechnen
+    return (dp_basis_total * visco_korrektur) / n_seg
