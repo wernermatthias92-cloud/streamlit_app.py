@@ -1,96 +1,52 @@
-import math
-from hydraulik.widerstand import berechne_hydraulischen_widerstand, r_parallel
-
-def berechne_feed_widerstaende(hat_t_stueck, d_a, l_a, b_a, sub_a, d_a1, l_a1, b_a1, d_a2, l_a2, b_a2,
-                               d_b, l_b, b_b, sub_b, d_b1, l_b1, b_b1, d_b2, l_b2, b_b2):
+def berechne_feed_widerstaende(**cfg):
     """
-    Berechnet ausschließlich die statischen hydraulischen Widerstände (R-Werte) 
-    des T-Stück-Netzwerks nach der Pumpe, um sie dem Solver zur Verfügung zu stellen.
+    Übersetzt die Netzwerkkonfiguration in eine Liste von Geometrien für jeden Membran-Pfad.
+    Gibt (Dummy, Membran_Namen, Feed_Pfade) zurück.
     """
+    m_namen = []
+    pfade = []
     
-    if not hat_t_stueck:
-        # Kein Netzwerk, nur 1 Hauptmodul
-        return 0, ["Modul 1 (Haupt)"], [0]
-
-    membran_namen = []
-    r_pfade = [] # Liste der kumulierten Widerstände für jeden Endpunkt (jedes Modul)
-
-    # --- Strang A ---
-    r_a_main = berechne_hydraulischen_widerstand(d_a, l_a, [], b_a)
-    
-    if sub_a:
-        r_a1 = berechne_hydraulischen_widerstand(d_a1, l_a1, [], b_a1)
-        r_a2 = berechne_hydraulischen_widerstand(d_a2, l_a2, [], b_a2)
-        r_a_sub = r_parallel(r_a1, r_a2)
-        r_a_tot = r_a_main + r_a_sub
-        
-        membran_namen.extend(["A1", "A2"])
-        # Der Weg zu A1 besteht aus der Hauptleitung A + der Zweigleitung A1
-        r_pfade.extend([r_a_main + r_a1, r_a_main + r_a2])
+    if not cfg.get("hat_t_stueck", False):
+        m_namen.append("Membran 1")
+        pfade.append([]) # Keine extra Zuleitung
     else:
-        r_a_tot = r_a_main
-        membran_namen.append("A")
-        r_pfade.append(r_a_main)
-
-    # --- Strang B ---
-    r_b_main = berechne_hydraulischen_widerstand(d_b, l_b, [], b_b)
+        # Strang A
+        seg_a = {"d": cfg.get("d_a", 13.2), "l": cfg.get("l_a", 150), "b": cfg.get("b_a", 1), "flow_factor": 2.0 if cfg.get("sub_a", False) else 1.0}
+        if cfg.get("sub_a", False):
+            m_namen.extend(["A1", "A2"])
+            pfade.append([seg_a, {"d": cfg.get("d_a1", 10), "l": cfg.get("l_a1", 500), "b": cfg.get("b_a1", 0), "flow_factor": 1.0}])
+            pfade.append([seg_a, {"d": cfg.get("d_a2", 10), "l": cfg.get("l_a2", 500), "b": cfg.get("b_a2", 0), "flow_factor": 1.0}])
+        else:
+            m_namen.append("A")
+            pfade.append([seg_a])
+            
+        # Strang B
+        seg_b = {"d": cfg.get("d_b", 13.2), "l": cfg.get("l_b", 150), "b": cfg.get("b_b", 1), "flow_factor": 2.0 if cfg.get("sub_b", False) else 1.0}
+        if cfg.get("sub_b", False):
+            m_namen.extend(["B1", "B2"])
+            pfade.append([seg_b, {"d": cfg.get("d_b1", 10), "l": cfg.get("l_b1", 500), "b": cfg.get("b_b1", 0), "flow_factor": 1.0}])
+            pfade.append([seg_b, {"d": cfg.get("d_b2", 10), "l": cfg.get("l_b2", 500), "b": cfg.get("b_b2", 0), "flow_factor": 1.0}])
+        else:
+            m_namen.append("B")
+            pfade.append([seg_b])
     
-    if sub_b:
-        r_b1 = berechne_hydraulischen_widerstand(d_b1, l_b1, [], b_b1)
-        r_b2 = berechne_hydraulischen_widerstand(d_b2, l_b2, [], b_b2)
-        r_b_sub = r_parallel(r_b1, r_b2)
-        r_b_tot = r_b_main + r_b_sub
-        
-        membran_namen.extend(["B1", "B2"])
-        r_pfade.extend([r_b_main + r_b1, r_b_main + r_b2])
-    else:
-        r_b_tot = r_b_main
-        membran_namen.append("B")
-        r_pfade.append(r_b_main)
-
-    # Gesamtwiderstand des T-Stück Netzwerks (für den Gesamtdruckabfall der Pumpe)
-    r_netzwerk = r_parallel(r_a_tot, r_b_tot)
-
-    return r_netzwerk, membran_namen, r_pfade
-
+    # Der erste Wert (None) fängt die alte r_pfade Variable der app.py ab, die wir nicht mehr brauchen.
+    return None, m_namen, pfade
 
 def analysiere_gesamte_topologie(saug_cfg, druck_cfg, netzwerk_cfg, konz_zweige, konz_out, perm_zweige, perm_out, perm_schlauch):
     """
-    Nimmt alle Rohrleitungsdaten entgegen und liefert ein sauberes Dictionary
-    mit allen statischen Widerständen für den Solver.
+    Bündelt alle Geometrien zentral für die dynamischen Solver.
     """
+    _, m_namen, feed_pfade = berechne_feed_widerstaende(**netzwerk_cfg)
     
-    # 1. Zuleitungen
-    r_saug = berechne_hydraulischen_widerstand(saug_cfg['d'], saug_cfg['l'], [], saug_cfg['b'])
-    r_druck_haupt = berechne_hydraulischen_widerstand(druck_cfg['d'], druck_cfg['l'], [], druck_cfg['b'])
-    
-    # 2. Feed-Netzwerk (Nur noch Namen und R-Werte, keine % mehr!)
-    r_netzwerk, membran_namen, r_feed_pfade = berechne_feed_widerstaende(**netzwerk_cfg)
-    
-    # 3. Konzentrat-Abfluss
-    r_k_zweige = []
-    for z in konz_zweige:
-        r_k_zweige.append(berechne_hydraulischen_widerstand(z['d'], z['l'], [], z['b']))
-    r_k_out = berechne_hydraulischen_widerstand(konz_out['d'], konz_out['l'], [], konz_out['b']) if konz_out else 0
-    
-    # 4. Permeat-Abfluss
-    r_p_zweige = []
-    for z in perm_zweige:
-        r_p_zweige.append(berechne_hydraulischen_widerstand(z['d'], z['l'], [], z['b']))
-    r_p_out = berechne_hydraulischen_widerstand(perm_out['d'], perm_out['l'], [], perm_out['b']) if perm_out else 0
-    r_p_schlauch = berechne_hydraulischen_widerstand(perm_schlauch['d'], perm_schlauch['l'], [], 0) if perm_schlauch else 0
-    p_back_height = (perm_schlauch['h'] * 1000 * 9.81) / 100000 if perm_schlauch else 0
-
     return {
-        "r_saug": r_saug,
-        "r_druck_haupt": r_druck_haupt,
-        "r_netzwerk": r_netzwerk,
-        "membran_namen": membran_namen,
-        "r_feed_pfade": r_feed_pfade, # Neu: Der Widerstand auf der Zulaufseite FÜR JEDES MODUL
-        "r_k_zweige": r_k_zweige,
-        "r_k_out": r_k_out,
-        "r_p_zweige": r_p_zweige,
-        "r_p_out": r_p_out,
-        "r_p_schlauch": r_p_schlauch,
-        "p_back_height": p_back_height
+        "membran_namen": m_namen,
+        "saug": saug_cfg,
+        "druck_haupt": druck_cfg,
+        "feed_pfade": feed_pfade,
+        "k_zweige": konz_zweige,
+        "k_out": konz_out,
+        "p_zweige": perm_zweige,
+        "p_out": perm_out,
+        "p_schlauch": perm_schlauch
     }
