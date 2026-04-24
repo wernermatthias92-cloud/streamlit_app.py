@@ -27,35 +27,36 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         q_ms = (flow_lh / 1000.0) / 3600.0
         return (r_val * q_ms**2) / 100000.0
 
-    q_min = 1.0
-    q_max = 20000.0 
-    
     n_seg = 10
     area_seg = m_flaeche / n_seg
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
+    total_permeat_guess = 200.0
 
-    for outer_it in range(5):
-        total_permeat_guess = 200.0
+    for outer_it in range(15):
+        # Grenzen für Bisektion immer sauber zurücksetzen
+        feed_min = 1.0
+        feed_max = 30000.0 
         
+        p_back_main = calc_dp(total_permeat_guess, hydraulik['p_out']) + calc_dp(total_permeat_guess, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
+
         for bisection_it in range(60):
-            q_feed_guess = (q_min + q_max) / 2.0
+            q_feed_guess = (feed_min + feed_max) / 2.0
+            
             p_verlust_saug = calc_dp(q_feed_guess, hydraulik['saug']) 
             p_verlust_druck_haupt = calc_dp(q_feed_guess, hydraulik['druck_haupt'])
             p_split = p_system - p_verlust_druck_haupt
             
             if p_split <= 0.1:
-                q_max = q_feed_guess
+                feed_max = q_feed_guess
                 continue
 
-            p_back_main = calc_dp(total_permeat_guess, hydraulik['p_out']) + calc_dp(total_permeat_guess, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
-            
-            q_c_total_calc = 0
-            q_p_total_calc = 0
-            p_t_stueck_sum = 0
+            q_c_total_calc = 0.0
+            q_p_total_calc = 0.0
+            p_t_stueck_sum = 0.0
             r_eff_list = []
             membran_daten_temp = []
-            max_spacer_dp = 0
-            total_permeat_salzfracht = 0
+            max_spacer_dp = 0.0
+            total_permeat_salzfracht = 0.0
 
             for i in range(anzahl_membranen):
                 f_in = max(0.001, q_feed_guess * flow_fractions[i])
@@ -65,18 +66,18 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 flow_local = f_in
                 tds_local = tds_feed
                 
-                q_p_sum_branch = 0
-                salzfracht_sum_branch = 0
-                p_drop_spacer_total = 0
+                q_p_sum_branch = 0.0
+                salzfracht_sum_branch = 0.0
+                p_drop_spacer_total = 0.0
                 
                 p_back_branch = calc_dp(total_permeat_guess / anzahl_membranen, hydraulik['p_zweige'][i])
                 p_back_total = p_back_main + p_back_branch
 
                 for j in range(n_seg):
                     q_p_seg = flow_local * 0.1 
-                    for _ in range(5):
+                    for _ in range(8):
                         q_c_seg = max(0.001, flow_local - q_p_seg)
-                        tds_c_temp = ((flow_local * tds_local) - (q_p_seg * (tds_local * salzdurchgang_real))) / q_c_seg if q_c_seg > 0 else tds_local
+                        tds_c_temp = ((flow_local * tds_local) - (q_p_seg * (tds_local * salzdurchgang_real))) / q_c_seg
                         tds_avg = (tds_local + tds_c_temp) / 2.0
                         
                         cp_factor = berechne_cp_faktor(q_p_seg, flow_local, q_c_seg, temp, m_flaeche, area_seg)
@@ -85,12 +86,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                         
                         p_verlust_spacer_j = berechne_spacer_dp_segment(flow_local, q_c_seg, temp, n_seg)
                         p_eff_mitte = p_local - (p_verlust_spacer_j / 2)
-                        pi_wall = berechne_osmotischen_druck(tds_wall, temp)
                         
+                        pi_wall = berechne_osmotischen_druck(tds_wall, temp)
                         ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
+                        
                         q_p_target_j = area_seg * a_wert * ndp * tcf_real
                         q_p_seg = q_p_seg * 0.5 + q_p_target_j * 0.5
-                        if q_p_seg >= flow_local: q_p_seg = flow_local * 0.99
+                        if q_p_seg >= flow_local: q_p_seg = flow_local * 0.95
 
                     q_p_sum_branch += q_p_seg
                     salzfracht_sum_branch += (q_p_seg * tds_p_target)
@@ -101,11 +103,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     if flow_local <= 0.001: 
                         flow_local = 0.001
                         break
+                        
                     tds_local = ((flow_local + q_p_seg) * tds_local - q_p_seg * tds_p_target) / flow_local
 
                 q_c_total_calc += flow_local
                 q_p_total_calc += q_p_sum_branch
                 total_permeat_salzfracht += salzfracht_sum_branch
+                
                 if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
                 
                 p_verlust_konz = calc_dp(flow_local, hydraulik['k_zweige'][i])
@@ -128,23 +132,24 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     "Konz. TDS (ppm)": round(tds_local, 0)
                 })
 
-            total_permeat_guess = q_p_total_calc
             ausbeute_calc = (q_p_total_calc / q_feed_guess) * 100.0
 
-            # Abgleich: Ist die Ausbeute zu hoch, müssen wir den Fluss erhöhen (Druckabfall steigt -> Ausbeute sinkt)
+            # Physik-Check Ausbeute
             if ausbeute_calc > ausbeute_pct:
-                q_min = q_feed_guess
+                feed_min = q_feed_guess 
             else:
-                q_max = q_feed_guess
+                feed_max = q_feed_guess
 
-            if abs(q_max - q_min) < 0.5:
+            if abs(feed_max - feed_min) < 0.5:
                 break
 
+        total_permeat_guess = q_p_total_calc
         sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
         flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
 
     avg_permeat_tds = total_permeat_salzfracht / q_p_total_calc if q_p_total_calc > 0 else 0
     final_konzentrat_tds = (q_feed_guess * tds_feed - total_permeat_salzfracht) / q_c_total_calc if q_c_total_calc > 0 else tds_feed
+    
     p_t_stueck_avg = p_t_stueck_sum / anzahl_membranen
     p_vor_ventil = p_t_stueck_avg - calc_dp(q_c_total_calc, hydraulik['k_out'])
 
@@ -161,7 +166,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         "max_spacer_dp": max_spacer_dp,
         "membran_daten": membran_daten_temp,
         "p_verlust_saug": p_verlust_saug,
-        "p_verlust_druck_haupt": p_verlust_druck_haupt,
+        "p_verlust_druck_haupt": calc_dp(q_feed_guess, hydraulik['druck_haupt']),
         "p_effektiv_start": p_split,
         "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
         "abzubauender_druck": abzubauender_druck,
