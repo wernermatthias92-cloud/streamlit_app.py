@@ -1,6 +1,6 @@
 import math
 from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert
-from hydraulik.widerstand import empfehle_drossel_durchmesser
+from hydraulik.widerstand import empfehle_drossel_durchmesser, berechne_hydraulischen_widerstand
 
 def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system):
@@ -9,13 +9,10 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     tcf_salz = berechne_tcf_salz(temp)
     a_wert = berechne_a_wert(m_test_flow, m_flaeche, m_test_druck, m_test_tds)
     
-    # --- Trocken-Modus Korrektur ---
+    salzdurchgang_basis = 1.0 - m_rueckhalt
     if trocken_modus:
         a_wert *= 1.15                
-        # Rückhalt sinkt um 6 absolute Prozentpunkte (z.B. 0.98 -> 0.92)
-        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.03))
-    else:
-        salzdurchgang_basis = 1.0 - m_rueckhalt
+        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.06))
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
 
@@ -23,6 +20,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     anzahl_membranen = len(membran_namen)
     if anzahl_membranen == 0:
         return {"error": "Keine Membranen im System definiert."}
+
+    # Lokale Helfer-Funktion für dynamischen Druckverlust
+    def calc_dp(flow_lh, cfg):
+        if flow_lh <= 0 or cfg.get('l', 0) <= 0: return 0.0
+        r_val = berechne_hydraulischen_widerstand(flow_lh, cfg['d'], cfg['l'], temp, bögen=cfg.get('b', 0))
+        q_ms = (flow_lh / 1000.0) / 3600.0
+        return (r_val * q_ms**2) / 100000.0
 
     ndp_approx = p_system - ((tds_feed / 100) * 0.07) - 0.5
     q_p_total_approx = (anzahl_membranen * m_flaeche) * a_wert * max(0.1, ndp_approx) * tcf_real * 1000
@@ -35,14 +39,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     max_spacer_dp = 0
 
     for iteration in range(40):
-        q_ms_feed = (q_feed_start_lh / 1000) / 3600
-        p_verlust_saug = (hydraulik['r_saug'] * q_ms_feed**2) / 100000 
-        p_verlust_druck_haupt = (hydraulik['r_druck_haupt'] * q_ms_feed**2) / 100000
+        p_verlust_saug = calc_dp(q_feed_start_lh, hydraulik['saug'])
+        p_verlust_druck_haupt = calc_dp(q_feed_start_lh, hydraulik['druck_haupt'])
         p_split = p_system - p_verlust_druck_haupt
         
         total_permeat = sum(q_p_array)
-        q_ms_p_total = (total_permeat / 1000) / 3600
-        p_back_main = (hydraulik['r_p_out'] + hydraulik['r_p_schlauch']) * q_ms_p_total**2 / 100000 + hydraulik['p_back_height']
+        # Permeat-Gegendruck inkl. geodätischer Höhe (1m = 0.0981 bar)
+        p_back_main = calc_dp(total_permeat, hydraulik['p_out']) + calc_dp(total_permeat, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
         
         r_eff_list = [] 
         max_spacer_dp = 0
@@ -65,8 +68,12 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             tds_p_target = tds_wall * salzdurchgang_real
             tds_p_array[i] = tds_p * 0.5 + tds_p_target * 0.5
             
-            q_ms_f_in = (f_in / 1000) / 3600
-            p_verlust_feed = (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
+            # --- DYNAMISCHE ROHRREIBUNG ---
+            p_verlust_feed = 0.0
+            for seg in hydraulik['feed_pfade'][i]:
+                seg_flow = f_in * seg['flow_factor']
+                p_verlust_feed += calc_dp(seg_flow, seg)
+                
             p_in = p_split - p_verlust_feed
             
             p_verlust_spacer = 0.2 * (f_in / 1000)**1.5
@@ -74,8 +81,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             
             p_effektiv_mitte = p_in - (p_verlust_spacer / 2)
             
-            q_ms_p_i = (q_p / 1000) / 3600
-            p_back_branch = (hydraulik['r_p_zweige'][i] * q_ms_p_i**2) / 100000
+            p_back_branch = calc_dp(q_p, hydraulik['p_zweige'][i])
             p_back_total = p_back_main + p_back_branch
             
             pi_wall = (tds_wall / 100) * 0.07
@@ -87,10 +93,10 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             q_p_array[i] = q_p_neu
             
             q_c_neu = max(0.001, f_in - q_p_neu)
-            q_ms_c_i = (q_c_neu / 1000) / 3600
-            p_verlust_konz = (hydraulik['r_k_zweige'][i] * q_ms_c_i**2) / 100000
+            p_verlust_konz = calc_dp(q_c_neu, hydraulik['k_zweige'][i])
             
             p_drop_branch = p_verlust_feed + p_verlust_spacer + p_verlust_konz
+            q_ms_f_in = (f_in / 1000) / 3600
             r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
             r_eff_list.append(r_eff)
             
@@ -112,11 +118,13 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         tds_c = ((f_in * tds_feed) - (q_p * tds_p)) / q_c
         total_permeat_salzfracht += (q_p * tds_p)
         
-        q_ms_f_in = (f_in / 1000) / 3600
-        p_in = p_split - (hydraulik['r_feed_pfade'][i] * q_ms_f_in**2) / 100000
-        p_back = p_back_main + (hydraulik['r_p_zweige'][i] * ((q_p/1000)/3600)**2) / 100000
+        p_verlust_feed = sum([calc_dp(f_in * seg['flow_factor'], seg) for seg in hydraulik['feed_pfade'][i]])
+        p_in = p_split - p_verlust_feed
+        
+        p_back = p_back_main + calc_dp(q_p, hydraulik['p_zweige'][i])
         p_spacer = 0.2 * (f_in / 1000)**1.5
-        p_konz = (hydraulik['r_k_zweige'][i] * ((q_c/1000)/3600)**2) / 100000
+        p_konz = calc_dp(q_c, hydraulik['k_zweige'][i])
+        
         p_nach_zweigen.append(p_in - p_spacer - p_konz)
         flux_lmh = q_p / m_flaeche
 
@@ -136,8 +144,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     final_konzentrat_tds = (q_feed_start_lh * tds_feed - total_permeat_salzfracht) / end_konzentrat_flow
 
     p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
-    q_ms_c_total = (end_konzentrat_flow / 1000) / 3600
-    p_vor_ventil = p_t_stueck_konz - (hydraulik['r_k_out'] * q_ms_c_total**2) / 100000
+    p_vor_ventil = p_t_stueck_konz - calc_dp(end_konzentrat_flow, hydraulik['k_out'])
 
     abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
     empfohlene_drossel_mm = empfehle_drossel_durchmesser(end_konzentrat_flow, abzubauender_druck)
