@@ -1,15 +1,20 @@
 import math
 from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
-from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp_segment
+from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp_segment, get_dichte_wasser
 
-def berechne_drossel_druckabfall(flow_lh, drossel_mm):
+def berechne_drossel_druckabfall(flow_lh, drossel_mm, temp_c):
+    """
+    KORRIGIERTE BLENDEN-GLEICHUNG: Delta P = (Q / (Cd * A))^2 * (rho / 2)
+    """
     if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
     q_ms = (flow_lh / 1000) / 3600
     d_m = drossel_mm / 1000.0
     area_m2 = math.pi * (d_m / 2)**2
     c_d = 0.6
-    v_spalt = q_ms / (area_m2 * c_d)
-    delta_p_pa = (1000 * v_spalt**2) / 2
+    rho = get_dichte_wasser(temp_c)
+    
+    term = q_ms / (c_d * area_m2)
+    delta_p_pa = (term**2) * (rho / 2.0)
     return delta_p_pa / 100000.0
 
 def berechne_pumpendruck(flow_lh, p_max, q_max):
@@ -31,7 +36,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
 
     if trocken_modus:
         a_wert *= 1.15
-        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.06))
+        salzdurchgang_basis = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
     salzdurchgang_real = salzdurchgang_basis * tcf_salz
     
@@ -57,6 +62,10 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     max_spacer_dp = 0
 
     for iteration in range(60): 
+        # Konvergenz-Prüfung: Abbruch wenn Intervall-Grenzen sich bis auf 0.01 l/h genähert haben
+        if abs(feed_max - feed_min) < 0.01:
+            break
+            
         q_feed_start_lh = (feed_min + feed_max) / 2
         
         if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
@@ -126,7 +135,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 
                 ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
                 
-                # BEREINIGT: "* 1000" entfernt
                 q_p_target_j = area_seg * a_wert * ndp * tcf_real 
                 
                 q_p_j_neu = q_p_j * 0.5 + q_p_target_j * 0.5
@@ -180,7 +188,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         p_t_stueck_konz = sum(p_nach_zweigen) / anzahl_membranen
         
         p_vor_ventil = p_t_stueck_konz - calc_dp(end_konzentrat_flow, hydraulik['k_out'])
-        p_verlust_drossel = berechne_drossel_druckabfall(end_konzentrat_flow, drossel_vorgabe_mm)
+        p_verlust_drossel = berechne_drossel_druckabfall(end_konzentrat_flow, drossel_vorgabe_mm, temp)
         restdruck_nach_ventil = p_vor_ventil - p_verlust_drossel
 
         if restdruck_nach_ventil > 0.0: feed_min = q_feed_start_lh
