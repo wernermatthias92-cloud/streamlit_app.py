@@ -99,7 +99,7 @@ with st.sidebar:
             else:
                 p_fix = 0
                 pumpe_p_max = st.number_input("Max. Druck bei 0 l/h (bar)", value=11.5, step=0.5, format="%.1f", key="pumpe_p_max")
-                pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=2500.0, step=100.0, key="pumpe_q_max")
+                pumpe_q_max = st.number_input("Max. Durchfluss bei 0 bar (l/h)", value=1920.0, step=10.0, key="pumpe_q_max")
                 p_system = pumpe_p_max
 
     with st.expander("3. Zuleitung & T-Stücke", expanded=False):
@@ -176,13 +176,13 @@ with st.sidebar:
         konz_zweige = []
         for i in range(anzahl_membranen):
             konz_zweige.append({
-                "d": st.number_input(f"Ø Konz {m_namen[i]} (mm)", min_value=0.01, value=8.4, step=0.1, key=f"kd_{i}"), 
+                "d": st.number_input(f"Ø Konz {m_namen[i]} (mm)", min_value=0.01, value=10.0, step=0.1, key=f"kd_{i}"), 
                 "l": st.number_input(f"Länge Konz {i} (mm)", min_value=0.01, value=100.0, step=5.0, key=f"kl_{i}"), 
                 "b": 0
             })
         st.divider()
         konz_out = {
-            "d": st.number_input("Ø Sammelrohr Konz (mm)", min_value=0.01, value=6.0, step=0.1, key="kod"), 
+            "d": st.number_input("Ø Sammelrohr Konz (mm)", min_value=0.01, value=10.0, step=0.1, key="kod"), 
             "l": st.number_input("Länge Sammel Konz (mm)", min_value=0.01, value=300.0, step=5.0, key="kol"), 
             "b": 2
         }
@@ -206,7 +206,7 @@ with st.sidebar:
             "h": st.number_input("Höhendifferenz Austritt (m)", value=0.0, step=0.5, key="psh")
         }
 
-# --- 3. BERECHNUNGSLOGIK ---
+# --- 3. BERECHNUNGSLOGIK DREIFACH AUSFÜHREN (MIN/IDEAL/MAX) ---
 
 hydraulik = analysiere_gesamte_topologie(
     saug_cfg, druck_cfg, netzwerk_cfg, 
@@ -214,17 +214,21 @@ hydraulik = analysiere_gesamte_topologie(
     perm_zweige, perm_out, perm_schlauch
 )
 
+tol = 0.18
+m_test_flow_min = m_test_flow_effektiv * (1 - tol) # Schwache Membran (weniger Permeat)
+m_test_flow_max = m_test_flow_effektiv * (1 + tol) # Starke Membran (mehr Permeat)
+
 if auslegungs_modus == "Ziel-Ausbeute vorgeben":
-    ergebnisse = simuliere_parallel(
-        hydraulik, ausbeute_pct, m_flaeche, m_test_flow_effektiv, 
-        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system
-    )
+    ergebnisse_ideal = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system)
+    ergebnisse_min = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system)
+    ergebnisse_max = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, p_system)
 else:
-    ergebnisse = simuliere_parallel_drossel(
-        hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, 
-        m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus,
-        pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix
-    )
+    ergebnisse_ideal = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix)
+    ergebnisse_min = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix)
+    ergebnisse_max = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pumpen_modus, pumpe_p_max, pumpe_q_max, p_zulauf, p_fix)
+
+# Das Haupt-Ergebnis für Tabellen und PDF bleibt der Idealwert
+ergebnisse = ergebnisse_ideal 
 
 # --- 4. MAIN WINDOW ---
 col_title, col_btn = st.columns([3, 1])
@@ -233,7 +237,7 @@ with col_title:
     st.title("💧 RO-Anlagen Planer")
 
 with col_btn:
-    st.write("") # Spacer
+    st.write("") 
     with st.expander("💾 Profil Speichern / Laden", expanded=False):
         dynamischer_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
         st.file_uploader("Profil laden (.json)", type=["json"], key=dynamischer_uploader_key, label_visibility="collapsed")
@@ -266,30 +270,28 @@ with col_btn:
             use_container_width=True
         )
 
+if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+    st.warning("⚠️ **Physikalischer Hinweis:** Du hast den Systemdruck fixiert (Manometer-Modus). Wenn du jetzt den Drosseldurchmesser änderst, rechnet das Programm mit einer *unendlich starken Pumpe*, die diesen Druck zwingend aufrecht erhält. Der Konzentratstrom wird dadurch massiv ansteigen, aber das Permeat bleibt konstant! Um den realen Druck- und Permeateinbruch beim Öffnen der Drossel zu simulieren, stelle den Modus in der Sidebar bitte auf **'Pumpenkennlinie berechnen'** um.")
+
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
 else:
-    tol = 0.18
-    p_ideal = ergebnisse['total_permeat']
-    k_ideal = ergebnisse['end_konzentrat_flow']
-    f_total = ergebnisse['q_feed_start_lh']
-    
-    p_min = p_ideal * (1 - tol)
-    p_max = min(p_ideal * (1 + tol), f_total * 0.98) 
-    
-    k_at_pmin = max(0.0, f_total - p_min)
-    k_at_pmax = max(0.0, f_total - p_max)
-    
-    def calc_tds_range(p_flow, k_flow):
-        if p_flow + k_flow <= 0: return 0, 0
-        rec = p_flow / (p_flow + k_flow)
-        cf = 1 / (1 - rec) if rec < 1 else 10
-        p_tds = ergebnisse['total_permeat_tds'] * (cf / (1 / (1 - (p_ideal / f_total)))) if f_total > p_ideal else ergebnisse['total_permeat_tds']
-        k_tds = (f_total * tds_feed - p_flow * p_tds) / k_flow if k_flow > 0 else tds_feed * cf
-        return p_tds, k_tds
+    # Werte aus den 3 unabhängigen Simulationen abrufen
+    p_ideal = ergebnisse_ideal.get('total_permeat', 0)
+    p_min = ergebnisse_min.get('total_permeat', 0)
+    p_max = ergebnisse_max.get('total_permeat', 0)
 
-    ptds_at_pmin, ktds_at_pmin = calc_tds_range(p_min, k_at_pmin)
-    ptds_at_pmax, ktds_at_pmax = calc_tds_range(p_max, k_at_pmax)
+    k_ideal = ergebnisse_ideal.get('end_konzentrat_flow', 0)
+    k_min = ergebnisse_min.get('end_konzentrat_flow', 0)
+    k_max = ergebnisse_max.get('end_konzentrat_flow', 0)
+
+    ptds_ideal = ergebnisse_ideal.get('total_permeat_tds', 0)
+    ptds_min = ergebnisse_min.get('total_permeat_tds', 0)
+    ptds_max = ergebnisse_max.get('total_permeat_tds', 0)
+
+    ktds_ideal = ergebnisse_ideal.get('final_konzentrat_tds', 0)
+    ktds_min = ergebnisse_min.get('final_konzentrat_tds', 0)
+    ktds_max = ergebnisse_max.get('final_konzentrat_tds', 0)
 
     inputs_fuer_pdf = {
         "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
@@ -324,9 +326,9 @@ else:
         r4.write(f"{v_max:.{precision}f} {unit}")
 
     perf_row("Permeatfluss", p_min, p_ideal, p_max, "l/h")
-    perf_row("Konzentratfluss", k_at_pmin, k_ideal, k_at_pmax, "l/h")
-    perf_row("Permeat TDS", ptds_at_pmin, ergebnisse['total_permeat_tds'], ptds_at_pmax, "ppm", 1)
-    perf_row("Konzentrat TDS", ktds_at_pmin, ergebnisse['final_konzentrat_tds'], ktds_at_pmax, "ppm", 0)
+    perf_row("Konzentratfluss", k_min, k_ideal, k_max, "l/h")
+    perf_row("Permeat TDS", ptds_min, ptds_ideal, ptds_max, "ppm", 1)
+    perf_row("Konzentrat TDS", ktds_min, ktds_ideal, ktds_max, "ppm", 0)
     
     st.divider()
     st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True)
