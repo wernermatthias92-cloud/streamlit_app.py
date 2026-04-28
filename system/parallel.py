@@ -14,10 +14,14 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
         a_wert *= 1.15                
         salz_durchgang_nominal = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
-    # NEU: Punkt 6 - Selektive Ionen-Rückhaltung
+    # NEU: Parametrisierte Aufteilung für typisches Leitungswasser
+    frac_hard = 0.65
+    frac_light = 0.35
+    
+    # NEU: Selektive Ionen-Rückhaltung mit mathematischer Begrenzung
     salzdurchgang_real_nominal = salz_durchgang_nominal * tcf_salz
-    pass_hard = salzdurchgang_real_nominal * 0.15  # 80% des Salzes (Calcium etc.) blockiert stark
-    pass_light = salzdurchgang_real_nominal * 1.5  # 20% des Salzes (Na, CO2) rutschen leichter durch
+    pass_hard = max(0.0, min(1.0, salzdurchgang_real_nominal * 0.15))
+    pass_light = max(0.0, min(1.0, salzdurchgang_real_nominal * 1.5))
 
     membran_namen = hydraulik['membran_namen']
     anzahl_membranen = len(membran_namen)
@@ -66,9 +70,8 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 p_local = p_split - p_verlust_feed
                 flow_local = f_in
                 
-                # NEU: Aufteilung der lokalen Konzentrationen in harte und leichte Ionen
-                tds_hard_local = tds_feed * 0.80
-                tds_light_local = tds_feed * 0.20
+                tds_hard_local = tds_feed * frac_hard
+                tds_light_local = tds_feed * frac_light
                 
                 q_p_sum_branch = 0.0
                 salzfracht_sum_branch = 0.0
