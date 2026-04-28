@@ -34,10 +34,14 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         a_wert *= 1.15
         salz_durchgang_nominal = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
-    # NEU: Punkt 6 - Selektive Ionen-Rückhaltung
+    # NEU: Parametrisierte Aufteilung für typisches Leitungswasser (65% hart, 35% leicht)
+    frac_hard = 0.65
+    frac_light = 0.35
+    
+    # NEU: Selektive Ionen-Rückhaltung mit strikter mathematischer Begrenzung (max 100%)
     salzdurchgang_real_nominal = salz_durchgang_nominal * tcf_salz
-    pass_hard = salzdurchgang_real_nominal * 0.15  # 80% des Salzes (Calcium etc.) blockiert extrem stark
-    pass_light = salzdurchgang_real_nominal * 1.5  # 20% des Salzes (Na, CO2) rutschen leichter durch
+    pass_hard = max(0.0, min(1.0, salzdurchgang_real_nominal * 0.15))
+    pass_light = max(0.0, min(1.0, salzdurchgang_real_nominal * 1.5))
     
     def calc_dp(flow_lh, cfg):
         if flow_lh <= 0 or cfg.get('l', 0) <= 0: return 0.0
@@ -94,9 +98,9 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 p_local = p_split - p_verlust_feed
                 flow_local = f_in
                 
-                # NEU: Aufteilung der lokalen Konzentrationen in harte und leichte Ionen
-                tds_hard_local = tds_feed * 0.80
-                tds_light_local = tds_feed * 0.20
+                # Lokale Konzentrationen anhand der definierten Fraktionen
+                tds_hard_local = tds_feed * frac_hard
+                tds_light_local = tds_feed * frac_light
                 
                 q_p_sum_branch = 0
                 salzfracht_sum_branch = 0
@@ -110,7 +114,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                     for _ in range(5):
                         q_c_seg = max(0.001, flow_local - q_p_seg)
                         
-                        # Lokale Konzentrierung getrennt für beide Ionengruppen
                         tds_hard_c_temp = ((flow_local * tds_hard_local) - (q_p_seg * (tds_hard_local * pass_hard))) / q_c_seg if q_c_seg > 0 else tds_hard_local
                         tds_light_c_temp = ((flow_local * tds_light_local) - (q_p_seg * (tds_light_local * pass_light))) / q_c_seg if q_c_seg > 0 else tds_light_local
                         
@@ -129,7 +132,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                         p_verlust_spacer_j = berechne_spacer_dp_segment(flow_local, q_c_seg, temp, n_seg)
                         p_eff_mitte = p_local - (p_verlust_spacer_j / 2)
                         
-                        # Osmotischer Druck aus der Summe beider Salze
                         pi_wall = berechne_osmotischen_druck(tds_hard_wall + tds_light_wall, temp)
                         
                         ndp = max(0.0, p_eff_mitte - pi_wall - p_back_total)
@@ -147,7 +149,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                         flow_local = 0.001
                         break
                     
-                    # Update der lokalen Salzmassen für das nächste Segment
                     tds_hard_local = ((flow_local + q_p_seg) * tds_hard_local - q_p_seg * tds_p_target_hard) / flow_local
                     tds_light_local = ((flow_local + q_p_seg) * tds_light_local - q_p_seg * tds_p_target_light) / flow_local
 
