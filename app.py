@@ -19,11 +19,20 @@ if 'p_flow_m3' not in st.session_state:
     st.session_state.p_flow_m3 = 13.63
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
+if 'feed_us' not in st.session_state: 
+    st.session_state.feed_us = 160.0
+if 'feed_ppm' not in st.session_state: 
+    st.session_state.feed_ppm = 96.0
 
 def sync_m3():
     st.session_state.p_flow_lh = st.session_state.p_flow_m3 * (1000 / 24)
 def sync_lh():
     st.session_state.p_flow_m3 = st.session_state.p_flow_lh * (24 / 1000)
+
+def sync_ppm_to_us():
+    st.session_state.feed_us = st.session_state.feed_ppm / 0.6
+def sync_us_to_ppm():
+    st.session_state.feed_ppm = st.session_state.feed_us * 0.6
 
 def lade_profil_callback():
     aktueller_uploader_key = f"profil_uploader_{st.session_state.uploader_key}"
@@ -78,10 +87,18 @@ with st.sidebar:
             m_rueckhalt = m_rueckhalt_int / 100.0
             
         m_test_tds = st.number_input("Test-Lösung (ppm NaCl)", value=500, step=50, key="m_test_tds")
+        st.caption(f"💡 Entspricht Labor-Leitwert: **{m_test_tds / 0.5:.0f} µS/cm**")
 
         st.divider()
         st.markdown("**Reale Bedingungen**")
-        tds_feed = st.number_input("Feed TDS real (ppm)", value=96, key="tds_feed")
+        
+        u1, u2 = st.columns(2)
+        with u1: 
+            st.number_input("Feed Leitwert (µS/cm)", key='feed_us', on_change=sync_us_to_ppm)
+        with u2: 
+            st.number_input("Feed TDS (ppm)", key='feed_ppm', on_change=sync_ppm_to_us)
+            
+        tds_feed = st.session_state.feed_ppm
         temp = st.slider("Wassertemperatur real (°C)", 1, 50, 13, key="temp")
         
         trocken_modus = st.checkbox("Auslieferzustand: Trocken (Dry Membrane)", value=False, key="trocken_modus")
@@ -307,7 +324,7 @@ else:
         pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
         st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf", use_container_width=True)
 
-    st.subheader("📊 Performance & Toleranzen (±18%)")
+    st.subheader("📊 Performance & Leitwerte (±18%)")
     
     if trocken_modus:
         st.info("🏜️ **Trocken-Modus aktiv:** Permeabilität wurde um +15 % erhöht, nomineller Rückhalt um -2,5 % reduziert (z.B. von 98 % auf 95,5 %).")
@@ -324,11 +341,24 @@ else:
         r2.write(f"{v_min:.{precision}f} {unit}")
         r3.write(f"**{v_ideal:.{precision}f} {unit}**")
         r4.write(f"{v_max:.{precision}f} {unit}")
+        
+    def us_ppm(ppm): 
+        return f"{ppm/0.6:.1f} µS/cm ({ppm:.1f} ppm)"
 
     perf_row("Permeatfluss", p_min, p_ideal, p_max, "l/h")
     perf_row("Konzentratfluss", k_min, k_ideal, k_max, "l/h")
-    perf_row("Permeat TDS", ptds_min, ptds_ideal, ptds_max, "ppm", 1)
-    perf_row("Konzentrat TDS", ktds_min, ktds_ideal, ktds_max, "ppm", 0)
+    
+    col_l, col1, col2, col3 = st.columns([2, 1, 1, 1])
+    col_l.markdown("**Permeat Qualität**")
+    col1.write(us_ppm(ptds_min))
+    col2.write(f"**{us_ppm(ptds_ideal)}**")
+    col3.write(us_ppm(ptds_max))
+
+    col_l, col1, col2, col3 = st.columns([2, 1, 1, 1])
+    col_l.markdown("**Konzentrat Qualität**")
+    col1.write(us_ppm(ktds_min))
+    col2.write(f"**{us_ppm(ktds_ideal)}**")
+    col3.write(us_ppm(ktds_max))
     
     st.divider()
     st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True)
