@@ -1,54 +1,61 @@
 import math
 
-def get_viskositaet_wasser(temp_c):
-    visko = 1.778 / (1 + 0.0337 * temp_c + 0.000221 * temp_c**2)
-    return visko * 1e-6
-
 def get_dichte_wasser(temp_c):
-    """Berechnet die Dichte von Wasser in kg/m³ in Abhängigkeit von der Temperatur."""
-    return 1000 * (1 - ((temp_c - 4)**2) / 115500)
+    return 1000.0 - ((temp_c - 4.0)**2) / 250.0
 
-def berechne_reibungszahl(re, d_mm, k_mm=0.007):
-    if re <= 0: return 0
-    if re < 2300: return 64 / re
-    elif re > 4000:
-        d_m, k_m = d_mm / 1000.0, k_mm / 1000.0
-        term = (k_m / (3.7 * d_m))**1.11 + (6.9 / re)
-        return (1.0 / (-1.8 * math.log10(term)))**2
-    else:
-        l_lam = 64 / 2300
-        d_m, k_m = d_mm / 1000.0, k_mm / 1000.0
-        l_turb = (1.0 / (-1.8 * math.log10((k_m / (3.7 * d_m))**1.11 + (6.9 / 4000))))**2
-        anteil_turb = (re - 2300) / (4000 - 2300)
-        return l_lam * (1 - anteil_turb) + l_turb * anteil_turb
+def get_viskositaet_wasser(temp_c):
+    return 0.001 * math.exp(0.580 - (temp_c / 26.0))
 
-def berechne_hydraulischen_widerstand(flow_lh, d_mm, l_mm, temp_c, k_mm=0.007, bögen=0):
-    if d_mm <= 0 or l_mm <= 0: return 0
-    q_m3s, d_m, l_m = (flow_lh / 1000.0) / 3600.0, d_mm / 1000.0, l_mm / 1000.0
-    area = math.pi * (d_m / 2)**2
-    v = q_m3s / area if area > 0 else 0
-    if v == 0: return 0
-    re = (v * d_m) / get_viskositaet_wasser(temp_c)
-    lam = berechne_reibungszahl(re, d_mm, k_mm)
-    rho = get_dichte_wasser(temp_c) 
-    r_wert = (lam * (l_m / d_m) + (bögen * 0.4)) * (rho / (2 * area**2))
-    return r_wert
-
-def empfehle_drossel_durchmesser(flow_lh, delta_p_bar, temp_c):
-    if flow_lh <= 0 or delta_p_bar <= 0: return 0
-    q_ms, delta_p_pa = (flow_lh / 1000.0) / 3600.0, delta_p_bar * 100000.0
-    rho = get_dichte_wasser(temp_c) 
-    v_theo = math.sqrt(2 * delta_p_pa / rho)
+def berechne_hydraulischen_widerstand(q_lh, d_innen_mm, l_mm, temp_c, bögen=0):
+    if q_lh <= 0 or d_innen_mm <= 0 or l_mm <= 0: return 0.0
     
-    # KALIBRIERT AUF 0.71 NACH REALEN MESSDATEN
-    area_needed = q_ms / (0.71 * v_theo) 
-    return math.sqrt(4 * area_needed / math.pi) * 1000.0
+    q_ms = (q_lh / 1000.0) / 3600.0
+    d_m = d_innen_mm / 1000.0
+    l_m = l_mm / 1000.0
+    area = math.pi * (d_m / 2)**2
+    v = q_ms / area
+    
+    rho = get_dichte_wasser(temp_c)
+    nu = get_viskositaet_wasser(temp_c) / rho
+    re = (v * d_m) / nu
+    
+    if re < 2300:
+        lambda_val = 64.0 / max(re, 1)
+    elif re > 4000:
+        k = 0.0015 / 1000.0
+        term = (k / (3.7 * d_m))**1.11 + 6.9 / re
+        lambda_val = 1.0 / (-1.8 * math.log10(term))**2
+    else:
+        lambda_val = 0.028 + ((re - 2300) / 1700) * (0.04 - 0.028)
+        
+    widerstand_rohr = lambda_val * (l_m / d_m) * (rho / 2.0)
+    widerstand_boegen = bögen * 1.5 * (rho / 2.0)
+    
+    r_total = widerstand_rohr + widerstand_boegen
+    return r_total
 
-def berechne_spacer_dp_segment(q_in_lh, q_c_lh, temp_c, n_seg):
-    q_avg = (q_in_lh + q_c_lh) / 2.0
+def berechne_spacer_dp_segment(q_feed_lh, q_konz_lh, temp_c, n_seg=10):
+    # KORREKTUR (Punkt 4): Die Formel muss den lokalen Fluss korrekt skalieren
+    q_avg = (q_feed_lh + q_konz_lh) / 2.0
     if q_avg <= 0: return 0.0
-    nu_t = get_viskositaet_wasser(temp_c)
-    nu_25 = 0.89e-6 
-    dp_basis_total = 0.48 * (q_avg / 1000.0)**1.7
-    visco_korrektur = (nu_t / nu_25)**0.25
-    return (dp_basis_total * visco_korrektur) / n_seg
+    
+    # Der Faktor 0.48 gilt für die GESAMTE Membran.
+    # Da (Q)^1.7 nicht linear ist, müssen wir die Länge aus dem Vorfaktor extrahieren:
+    # 0.48 / n_seg ist die korrekte Linearisierung für die reine Längenabhängigkeit
+    dp_bar_seg = (0.48 / n_seg) * ((q_avg / 100.0)**1.7)
+    
+    visk = get_viskositaet_wasser(temp_c)
+    visk_ref = get_viskositaet_wasser(25.0)
+    
+    return dp_bar_seg * (visk / visk_ref)
+
+def empfehle_drossel_durchmesser(flow_c_lh, druckabfall_bar, temp_c):
+    if druckabfall_bar <= 0 or flow_c_lh <= 0: return 1.2
+    dp_pa = druckabfall_bar * 100000.0
+    rho = get_dichte_wasser(temp_c)
+    q_ms = (flow_c_lh / 1000.0) / 3600.0
+    c_d = 0.71
+    v_theo = math.sqrt(2 * dp_pa / rho)
+    area = q_ms / (c_d * v_theo)
+    d_m = math.sqrt(area / math.pi) * 2
+    return d_m * 1000.0
