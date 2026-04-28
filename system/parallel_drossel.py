@@ -43,7 +43,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         return (r_val * q_ms**2) / 100000.0
             
     q_min = 1.0
-    q_max_search = 30000.0 if pumpen_modus == "Gemessenen Druck eintragen (Manometer)" else min(30000.0, q_max * 0.99) 
+    # KORREKTUR: Abfrage auf das neue Stichwort "Manometer"
+    q_max_search = 30000.0 if pumpen_modus == "Manometer" else min(30000.0, q_max * 0.99) 
     
     c_d = 0.71
     area_drossel_m2 = math.pi * ((drossel_vorgabe_mm / 1000.0) / 2)**2
@@ -60,7 +61,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         for bisection_it in range(60): 
             q_feed_guess = (q_min_bound + q_max_bound) / 2.0
             
-            if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
+            # KORREKTUR: Abfrage auf das neue Stichwort "Manometer"
+            if pumpen_modus == "Manometer":
                 p_aktuell = p_fix
                 p_verlust_saug = 0.0
             else:
@@ -194,7 +196,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         "max_spacer_dp": max_spacer_dp,
         "membran_daten": membran_daten_temp,
         "p_verlust_saug": p_verlust_saug,
-        "p_verlust_druck_haupt": p_split - p_aktuell if pumpen_modus != "Gemessenen Druck eintragen (Manometer)" else calc_dp(q_feed_guess, hydraulik['druck_haupt']),
+        # KORREKTUR: Abfrage auf das neue Stichwort "Manometer"
+        "p_verlust_druck_haupt": p_split - p_aktuell if pumpen_modus != "Manometer" else calc_dp(q_feed_guess, hydraulik['druck_haupt']),
         "p_effektiv_start": p_split,
         "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
         "abzubauender_druck": max(0.0, p_vor_ventil),
