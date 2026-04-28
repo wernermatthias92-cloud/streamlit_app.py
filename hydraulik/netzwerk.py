@@ -1,58 +1,52 @@
-# hydraulik/netzwerk.py
-
-def berechne_feed_widerstaende(hat_t_stueck, d_a, l_a, b_a, sub_a, d_a1, l_a1, b_a1, d_a2, l_a2, b_a2,
-                              d_b, l_b, b_b, sub_b, d_b1, l_b1, b_b1, d_b2, l_b2, b_b2):
+def berechne_feed_widerstaende(**cfg):
+    """
+    Übersetzt die Netzwerkkonfiguration in eine Liste von Geometrien für jeden Membran-Pfad.
+    Gibt (Dummy, Membran_Namen, Feed_Pfade) zurück.
+    """
+    m_namen = []
     pfade = []
-    namen = []
     
-    if not hat_t_stueck:
-        # Nur eine Membran (Standardfall)
-        pfade.append([{'d': d_a, 'l': l_a, 'b': b_a, 'flow_factor': 1.0}])
-        namen.append("A")
+    if not cfg.get("hat_t_stueck", False):
+        m_namen.append("Membran 1")
+        pfade.append([]) # Keine extra Zuleitung
     else:
-        # Pfad zu A / A1 / A2
-        if not sub_a:
-            pfade.append([{'d': d_a, 'l': l_a, 'b': b_a, 'flow_factor': 1.0}])
-            namen.append("A")
+        # Strang A
+        seg_a = {"d": cfg.get("d_a", 13.2), "l": cfg.get("l_a", 150), "b": cfg.get("b_a", 1), "flow_factor": 2.0 if cfg.get("sub_a", False) else 1.0}
+        if cfg.get("sub_a", False):
+            m_namen.extend(["A1", "A2"])
+            pfade.append([seg_a, {"d": cfg.get("d_a1", 10), "l": cfg.get("l_a1", 500), "b": cfg.get("b_a1", 0), "flow_factor": 1.0}])
+            pfade.append([seg_a, {"d": cfg.get("d_a2", 10), "l": cfg.get("l_a2", 500), "b": cfg.get("b_a2", 0), "flow_factor": 1.0}])
         else:
-            pfade.append([
-                {'d': d_a, 'l': l_a, 'b': b_a, 'flow_factor': 1.0}, # Gemeinsames Stück A
-                {'d': d_a1, 'l': l_a1, 'b': b_a1, 'flow_factor': 0.5} # Einzelstück A1
-            ])
-            pfade.append([
-                {'d': d_a, 'l': l_a, 'b': b_a, 'flow_factor': 1.0}, # Gemeinsames Stück A
-                {'d': d_a2, 'l': l_a2, 'b': b_a2, 'flow_factor': 0.5} # Einzelstück A2
-            ])
-            namen.extend(["A1", "A2"])
-
-        # Pfad zu B / B1 / B2
-        if not sub_b:
-            pfade.append([{'d': d_b, 'l': l_b, 'b': b_b, 'flow_factor': 1.0}])
-            namen.append("B")
-        else:
-            pfade.append([
-                {'d': d_b, 'l': l_b, 'b': b_b, 'flow_factor': 1.0}, # Gemeinsames Stück B
-                {'d': d_b1, 'l': l_b1, 'b': b_b1, 'flow_factor': 0.5} # Einzelstück B1
-            ])
-            pfade.append([
-                {'d': d_b, 'l': l_b, 'b': b_b, 'flow_factor': 1.0}, # Gemeinsames Stück B
-                {'d': d_b2, 'l': l_b2, 'b': b_b2, 'flow_factor': 0.5} # Einzelstück B2
-            ])
-            namen.extend(["B1", "B2"])
+            m_namen.append("A")
+            pfade.append([seg_a])
             
-    return pfade, namen, len(pfade)
+        # Strang B
+        seg_b = {"d": cfg.get("d_b", 13.2), "l": cfg.get("l_b", 150), "b": cfg.get("b_b", 1), "flow_factor": 2.0 if cfg.get("sub_b", False) else 1.0}
+        if cfg.get("sub_b", False):
+            m_namen.extend(["B1", "B2"])
+            pfade.append([seg_b, {"d": cfg.get("d_b1", 10), "l": cfg.get("l_b1", 500), "b": cfg.get("b_b1", 0), "flow_factor": 1.0}])
+            pfade.append([seg_b, {"d": cfg.get("d_b2", 10), "l": cfg.get("l_b2", 500), "b": cfg.get("b_b2", 0), "flow_factor": 1.0}])
+        else:
+            m_namen.append("B")
+            pfade.append([seg_b])
+    
+    # Der erste Wert (None) fängt die alte r_pfade Variable der app.py ab, die wir nicht mehr brauchen.
+    return None, m_namen, pfade
 
 def analysiere_gesamte_topologie(saug_cfg, druck_cfg, netzwerk_cfg, konz_zweige, konz_out, perm_zweige, perm_out, perm_schlauch):
-    pfade, namen, anzahl = berechne_feed_widerstaende(**netzwerk_cfg)
+    """
+    Bündelt alle Geometrien zentral für die dynamischen Solver.
+    """
+    _, m_namen, feed_pfade = berechne_feed_widerstaende(**netzwerk_cfg)
     
     return {
-        'saug': saug_cfg,
-        'druck_haupt': druck_cfg,
-        'feed_pfade': pfade,
-        'membran_namen': namen,
-        'k_zweige': konz_zweige,
-        'k_out': konz_out,
-        'p_zweige': perm_zweige,
-        'p_out': perm_out,
-        'p_schlauch': perm_schlauch
+        "membran_namen": m_namen,
+        "saug": saug_cfg,
+        "druck_haupt": druck_cfg,
+        "feed_pfade": feed_pfade,
+        "k_zweige": konz_zweige,
+        "k_out": konz_out,
+        "p_zweige": perm_zweige,
+        "p_out": perm_out,
+        "p_schlauch": perm_schlauch
     }
