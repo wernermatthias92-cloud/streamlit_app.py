@@ -59,12 +59,10 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     q_p_branch_guess = [200.0 / anzahl_membranen] * anzahl_membranen
     total_permeat_guess = 200.0
 
-    # KORREKTUR (Punkt 3): 15 statt 5 Iterationen für extreme Gegendruck-Setups
     for outer_it in range(15):
         q_max_bound = q_max_search
         q_min_bound = q_min
         
-        # Lokale Speicher für die Endwerte der Bisektion
         final_q_c_total_calc = 0
         final_p_t_stueck_list = []
         final_r_eff_list = []
@@ -179,6 +177,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 
                 membran_daten_temp.append({
                     "Membran": membran_namen[i],
+                    "Feed-Verlust (bar)": round(p_verlust_feed, 3), # NEU: Zur Fehlerdiagnose des Netzwerks!
                     "Eingangsdruck (bar)": round(p_split - p_verlust_feed, 2),
                     "Flux (LMH)": round(q_p_sum_branch / m_flaeche, 1),
                     "Permeat (l/h)": round(q_p_sum_branch, 1),
@@ -192,7 +191,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                     "Konz. µS/cm": round(tds_local_total / 0.6, 0)
                 })
 
-            # KORREKTUR (Punkt 2): Physikalischer Gleichgewichtsdruck (Max) statt arithmetischem Mittel
             p_vor_ventil = max(p_t_stueck_list) - calc_dp(q_c_total_calc, hydraulik['k_out'])
 
             if p_vor_ventil <= 0.0:
@@ -202,7 +200,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             v_theo = math.sqrt(2 * (p_vor_ventil * 100000.0) / rho)
             q_c_throttle = c_d * area_drossel_m2 * v_theo * 3600.0 * 1000.0
 
-            # Speichere die finalen Werte des aktuellen Bisektionsschritts
             final_q_c_total_calc = q_c_total_calc
             final_p_t_stueck_list = p_t_stueck_list
             final_r_eff_list = r_eff_list
@@ -217,7 +214,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             if abs(q_max_bound - q_min_bound) < 0.5:
                 break
 
-        # KORREKTUR (Punkt 1): Update der Permeat-Guesse NACH der Bisektion!
         total_permeat_guess = final_q_p_total_calc
         q_p_branch_guess = final_q_p_branch_calc_list
         
