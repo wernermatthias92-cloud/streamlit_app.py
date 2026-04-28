@@ -34,11 +34,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         a_wert *= 1.15
         salz_durchgang_nominal = 1.0 - max(0.0, (m_rueckhalt - 0.025))
 
-    # NEU: Parametrisierte Aufteilung für typisches Leitungswasser (65% hart, 35% leicht)
     frac_hard = 0.65
     frac_light = 0.35
-    
-    # NEU: Selektive Ionen-Rückhaltung mit strikter mathematischer Begrenzung (max 100%)
     salzdurchgang_real_nominal = salz_durchgang_nominal * tcf_salz
     pass_hard = max(0.0, min(1.0, salzdurchgang_real_nominal * 0.15))
     pass_light = max(0.0, min(1.0, salzdurchgang_real_nominal * 1.5))
@@ -58,9 +55,12 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
     n_seg = 10
     area_seg = m_flaeche / n_seg
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
+    
+    # NEU: Array für den Permeat-Rückstau pro Zweig
+    q_p_branch_guess = [200.0 / anzahl_membranen] * anzahl_membranen
 
     for outer_it in range(5):
-        total_permeat_guess = 200.0
+        total_permeat_guess = sum(q_p_branch_guess)
         q_max_bound = q_max_search
         q_min_bound = q_min
         
@@ -90,6 +90,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             membran_daten_temp = []
             max_spacer_dp = 0
             total_permeat_salzfracht = 0
+            
+            q_p_branch_calc_list = []
 
             for i in range(anzahl_membranen):
                 f_in = max(0.001, q_feed_guess * flow_fractions[i])
@@ -98,7 +100,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 p_local = p_split - p_verlust_feed
                 flow_local = f_in
                 
-                # Lokale Konzentrationen anhand der definierten Fraktionen
                 tds_hard_local = tds_feed * frac_hard
                 tds_light_local = tds_feed * frac_light
                 
@@ -106,7 +107,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 salzfracht_sum_branch = 0
                 p_drop_spacer_total = 0
                 
-                p_back_branch = calc_dp(total_permeat_guess / anzahl_membranen, hydraulik['p_zweige'][i])
+                # NEU: Exakte Berechnung des Gegendrucks mit dem individuellen Volumenstrom des Zweigs
+                p_back_branch = calc_dp(q_p_branch_guess[i], hydraulik['p_zweige'][i])
                 p_back_total = p_back_main + p_back_branch
 
                 for j in range(n_seg):
@@ -154,6 +156,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
 
                 q_c_total_calc += flow_local
                 q_p_total_calc += q_p_sum_branch
+                q_p_branch_calc_list.append(q_p_sum_branch)
                 total_permeat_salzfracht += salzfracht_sum_branch
                 if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
                 
@@ -184,6 +187,8 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
                 })
 
             total_permeat_guess = q_p_total_calc
+            q_p_branch_guess = q_p_branch_calc_list
+            
             p_t_stueck_avg = p_t_stueck_sum / anzahl_membranen
             p_vor_ventil = p_t_stueck_avg - calc_dp(q_c_total_calc, hydraulik['k_out'])
 
