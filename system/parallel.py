@@ -30,26 +30,24 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     n_seg = 10
     area_seg = m_flaeche / n_seg
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
-    total_permeat_guess = 200.0
 
-    for outer_it in range(15):
-        # Grenzen für Bisektion immer sauber zurücksetzen
-        feed_min = 1.0
-        feed_max = 30000.0 
+    for outer_it in range(5):
+        q_min = 1.0
+        q_max = 20000.0 
+        total_permeat_guess = 200.0
         
-        p_back_main = calc_dp(total_permeat_guess, hydraulik['p_out']) + calc_dp(total_permeat_guess, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
-
         for bisection_it in range(60):
-            q_feed_guess = (feed_min + feed_max) / 2.0
-            
+            q_feed_guess = (q_min + q_max) / 2.0
             p_verlust_saug = calc_dp(q_feed_guess, hydraulik['saug']) 
             p_verlust_druck_haupt = calc_dp(q_feed_guess, hydraulik['druck_haupt'])
             p_split = p_system - p_verlust_druck_haupt
             
             if p_split <= 0.1:
-                feed_max = q_feed_guess
+                q_max = q_feed_guess
                 continue
 
+            p_back_main = calc_dp(total_permeat_guess, hydraulik['p_out']) + calc_dp(total_permeat_guess, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
+            
             q_c_total_calc = 0.0
             q_p_total_calc = 0.0
             p_t_stueck_sum = 0.0
@@ -75,9 +73,9 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
 
                 for j in range(n_seg):
                     q_p_seg = flow_local * 0.1 
-                    for _ in range(8):
+                    for _ in range(5):
                         q_c_seg = max(0.001, flow_local - q_p_seg)
-                        tds_c_temp = ((flow_local * tds_local) - (q_p_seg * (tds_local * salzdurchgang_real))) / q_c_seg
+                        tds_c_temp = ((flow_local * tds_local) - (q_p_seg * (tds_local * salzdurchgang_real))) / q_c_seg if q_c_seg > 0 else tds_local
                         tds_avg = (tds_local + tds_c_temp) / 2.0
                         
                         cp_factor = berechne_cp_faktor(q_p_seg, flow_local, q_c_seg, temp, m_flaeche, area_seg)
@@ -92,7 +90,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                         
                         q_p_target_j = area_seg * a_wert * ndp * tcf_real
                         q_p_seg = q_p_seg * 0.5 + q_p_target_j * 0.5
-                        if q_p_seg >= flow_local: q_p_seg = flow_local * 0.95
+                        if q_p_seg >= flow_local: q_p_seg = flow_local * 0.99
 
                     q_p_sum_branch += q_p_seg
                     salzfracht_sum_branch += (q_p_seg * tds_p_target)
@@ -120,6 +118,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 r_eff = p_drop_branch / (q_ms_f_in**2) if q_ms_f_in > 0 else 1e9
                 r_eff_list.append(r_eff)
                 
+                permeate_tds_branch = salzfracht_sum_branch / q_p_sum_branch if q_p_sum_branch > 0 else 0
                 membran_daten_temp.append({
                     "Membran": membran_namen[i],
                     "Eingangsdruck (bar)": round(p_split - p_verlust_feed, 2),
@@ -128,19 +127,21 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     "Gegendruck (bar)": round(p_back_total, 3),
                     "Konzentrat (l/h)": round(flow_local, 1),
                     "Feed TDS (ppm)": round(tds_feed, 0),
-                    "Permeat TDS (ppm)": round(salzfracht_sum_branch / q_p_sum_branch if q_p_sum_branch > 0 else 0, 1),
-                    "Konz. TDS (ppm)": round(tds_local, 0)
+                    "Permeat TDS (ppm)": round(permeate_tds_branch, 1),
+                    "Konz. TDS (ppm)": round(tds_local, 0),
+                    "Feed µS/cm": round(tds_feed / 0.6, 0),
+                    "Permeat µS/cm": round(permeate_tds_branch / 0.6, 1),
+                    "Konz. µS/cm": round(tds_local / 0.6, 0)
                 })
 
             ausbeute_calc = (q_p_total_calc / q_feed_guess) * 100.0
 
-            # Physik-Check Ausbeute
             if ausbeute_calc > ausbeute_pct:
-                feed_min = q_feed_guess 
+                q_min = q_feed_guess 
             else:
-                feed_max = q_feed_guess
+                q_max = q_feed_guess
 
-            if abs(feed_max - feed_min) < 0.5:
+            if abs(q_max - q_min) < 0.5:
                 break
 
         total_permeat_guess = q_p_total_calc
