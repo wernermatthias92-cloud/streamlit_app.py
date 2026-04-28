@@ -36,13 +36,19 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
     area_seg = m_flaeche / n_seg
     flow_fractions = [1.0 / anzahl_membranen] * anzahl_membranen
     
-    # NEU: Array für den Permeat-Rückstau pro Zweig
+    total_permeat_guess = 200.0
     q_p_branch_guess = [200.0 / anzahl_membranen] * anzahl_membranen
 
-    for outer_it in range(5):
+    # KORREKTUR (Punkt 3): 15 statt 5 Iterationen
+    for outer_it in range(15):
         q_min = 1.0
         q_max = 20000.0 
-        total_permeat_guess = sum(q_p_branch_guess)
+        
+        final_q_c_total_calc = 0
+        final_p_t_stueck_list = []
+        final_r_eff_list = []
+        final_q_p_total_calc = 0
+        final_q_p_branch_calc_list = []
         
         for bisection_it in range(60):
             q_feed_guess = (q_min + q_max) / 2.0
@@ -58,7 +64,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             
             q_c_total_calc = 0.0
             q_p_total_calc = 0.0
-            p_t_stueck_sum = 0.0
+            p_t_stueck_list = []
             r_eff_list = []
             membran_daten_temp = []
             max_spacer_dp = 0.0
@@ -80,7 +86,6 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 salzfracht_sum_branch = 0.0
                 p_drop_spacer_total = 0.0
                 
-                # NEU: Exakte Berechnung des Gegendrucks mit dem individuellen Volumenstrom des Zweigs
                 p_back_branch = calc_dp(q_p_branch_guess[i], hydraulik['p_zweige'][i])
                 p_back_total = p_back_main + p_back_branch
 
@@ -135,7 +140,7 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                 if p_drop_spacer_total > max_spacer_dp: max_spacer_dp = p_drop_spacer_total
                 
                 p_verlust_konz = calc_dp(flow_local, hydraulik['k_zweige'][i])
-                p_t_stueck_sum += (p_local - p_verlust_konz)
+                p_t_stueck_list.append(p_local - p_verlust_konz)
                 
                 p_drop_branch = p_verlust_feed + p_drop_spacer_total + p_verlust_konz
                 q_ms_f_in = (f_in / 1000) / 3600
@@ -160,6 +165,12 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
                     "Konz. µS/cm": round(tds_local_total / 0.6, 0)
                 })
 
+            final_q_c_total_calc = q_c_total_calc
+            final_p_t_stueck_list = p_t_stueck_list
+            final_r_eff_list = r_eff_list
+            final_q_p_total_calc = q_p_total_calc
+            final_q_p_branch_calc_list = q_p_branch_calc_list
+
             ausbeute_calc = (q_p_total_calc / q_feed_guess) * 100.0
 
             if ausbeute_calc > ausbeute_pct:
@@ -170,28 +181,29 @@ def simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow,
             if abs(q_max - q_min) < 0.5:
                 break
 
-        total_permeat_guess = q_p_total_calc
-        q_p_branch_guess = q_p_branch_calc_list
+        # KORREKTUR (Punkt 1): Updates in die äußere Schleife verschoben
+        total_permeat_guess = final_q_p_total_calc
+        q_p_branch_guess = final_q_p_branch_calc_list
         
-        sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
-        flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in r_eff_list]
+        sum_c = sum(1.0 / math.sqrt(r) for r in final_r_eff_list)
+        flow_fractions = [(1.0 / math.sqrt(r)) / sum_c for r in final_r_eff_list]
 
-    avg_permeat_tds = total_permeat_salzfracht / q_p_total_calc if q_p_total_calc > 0 else 0
-    final_konzentrat_tds = (q_feed_guess * tds_feed - total_permeat_salzfracht) / q_c_total_calc if q_c_total_calc > 0 else tds_feed
+    avg_permeat_tds = total_permeat_salzfracht / final_q_p_total_calc if final_q_p_total_calc > 0 else 0
+    final_konzentrat_tds = (q_feed_guess * tds_feed - total_permeat_salzfracht) / final_q_c_total_calc if final_q_c_total_calc > 0 else tds_feed
     
-    p_t_stueck_avg = p_t_stueck_sum / anzahl_membranen
-    p_vor_ventil = p_t_stueck_avg - calc_dp(q_c_total_calc, hydraulik['k_out'])
+    # KORREKTUR (Punkt 2): Physikalischer Sammeldruck
+    p_vor_ventil = max(final_p_t_stueck_list) - calc_dp(final_q_c_total_calc, hydraulik['k_out'])
 
     abzubauender_druck = max(0.1, p_vor_ventil - 0.5)
-    empfohlene_drossel_mm = empfehle_drossel_durchmesser(q_c_total_calc, abzubauender_druck, temp)
+    empfohlene_drossel_mm = empfehle_drossel_durchmesser(final_q_c_total_calc, abzubauender_druck, temp)
 
     return {
         "error": None,
         "q_feed_start_lh": q_feed_guess,
-        "total_permeat": q_p_total_calc,
+        "total_permeat": final_q_p_total_calc,
         "total_permeat_tds": avg_permeat_tds,
         "final_konzentrat_tds": final_konzentrat_tds,
-        "end_konzentrat_flow": q_c_total_calc,
+        "end_konzentrat_flow": final_q_c_total_calc,
         "max_spacer_dp": max_spacer_dp,
         "membran_daten": membran_daten_temp,
         "p_verlust_saug": p_verlust_saug,
