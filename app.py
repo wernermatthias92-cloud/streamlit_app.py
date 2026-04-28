@@ -105,7 +105,6 @@ with st.sidebar:
         
         st.divider()
         
-        # NEU: Das modulare Pumpen-Menü
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
             p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f", key="p_system_ziel")
             pump_cfg = {"mode": None, "p_max": 0, "q_max": 0, "p_fix": p_system, "p_z": 0, "exp": 2.0}
@@ -121,7 +120,6 @@ with st.sidebar:
                     from utils.pumpen import PUMPEN_DATENBANK, get_pumpen_namen
                     pumpen_namen = get_pumpen_namen()
                 except ImportError:
-                    # Fallback, falls Datei noch nicht gefunden
                     PUMPEN_DATENBANK = {"Manuelle Eingabe": {"p_max": 11.5, "q_max": 1920.0, "exponent": 2.0, "info": ""}}
                     pumpen_namen = ["Manuelle Eingabe"]
                     
@@ -260,7 +258,6 @@ if auslegungs_modus == "Ziel-Ausbeute vorgeben":
     ergebnisse_min = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg.get("p_fix", 0))
     ergebnisse_max = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg.get("p_fix", 0))
 else:
-    # NEU: Wir übergeben an den Solver ganz am Ende den pump_cfg["exp"]
     ergebnisse_ideal = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
     ergebnisse_min = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
     ergebnisse_max = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
