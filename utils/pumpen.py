@@ -18,7 +18,7 @@ PUMPEN_DATENBANK = {
         "info": "Mehrstufige Hochdruck-Kreiselpumpe"
     },
     "WILO MHIL 107-E-1-230-50-2/EC /B": {
-        "p_max": 6.6, 
+        "p_max": 7.0, 
         "q_max": 3000.0, 
         "exponent": 3.0,
         "info": "7-stufige horizontale Hochdruck-Kreiselpumpe (0.55 kW)"
