@@ -2,12 +2,21 @@ import math
 from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp_segment, get_dichte_wasser
 
-# NEU: Der Exponent wird nun dynamisch übergeben
+def berechne_drossel_druckabfall(flow_lh, drossel_mm, temp_c):
+    if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
+    q_ms = (flow_lh / 1000.0) / 3600.0
+    d_m = drossel_mm / 1000.0
+    area_m2 = math.pi * (d_m / 2)**2
+    c_d = 0.71 
+    rho = get_dichte_wasser(temp_c)
+    term = q_ms / (c_d * area_m2)
+    delta_p_pa = (term**2) * (rho / 2.0)
+    return delta_p_pa / 100000.0
+
 def berechne_pumpendruck(flow_lh, p_max, q_max, pump_exp):
     if flow_lh >= q_max: return 0.0
     return p_max * (1.0 - (flow_lh / q_max)**pump_exp)
 
-# NEU: Argument pump_exp=2.0 wurde hinzugefügt
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
                                m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus,
                                pumpen_modus, p_max, q_max, p_zulauf, p_fix, pump_exp=2.0):
@@ -57,7 +66,6 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             else:
                 p_verlust_saug = calc_dp(q_feed_guess, hydraulik['saug'])
                 p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
-                # NEU: Exponent wird in der Physikberechnung genutzt
                 p_aktuell = p_vor_pumpe + berechne_pumpendruck(q_feed_guess, p_max, q_max, pump_exp)
             
             p_split = p_aktuell - calc_dp(q_feed_guess, hydraulik['druck_haupt'])
