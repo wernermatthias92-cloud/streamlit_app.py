@@ -2,24 +2,15 @@ import math
 from membrane.modell import berechne_tcf, berechne_tcf_salz, berechne_a_wert, berechne_osmotischen_druck, berechne_cp_faktor
 from hydraulik.widerstand import berechne_hydraulischen_widerstand, berechne_spacer_dp_segment, get_dichte_wasser
 
-def berechne_drossel_druckabfall(flow_lh, drossel_mm, temp_c):
-    if flow_lh <= 0.001 or drossel_mm <= 0: return 9999.0 
-    q_ms = (flow_lh / 1000.0) / 3600.0
-    d_m = drossel_mm / 1000.0
-    area_m2 = math.pi * (d_m / 2)**2
-    c_d = 0.71 
-    rho = get_dichte_wasser(temp_c)
-    term = q_ms / (c_d * area_m2)
-    delta_p_pa = (term**2) * (rho / 2.0)
-    return delta_p_pa / 100000.0
-
-def berechne_pumpendruck(flow_lh, p_max, q_max):
+# NEU: Der Exponent wird nun dynamisch übergeben
+def berechne_pumpendruck(flow_lh, p_max, q_max, pump_exp):
     if flow_lh >= q_max: return 0.0
-    return p_max * (1.0 - (flow_lh / q_max)**2)
+    return p_max * (1.0 - (flow_lh / q_max)**pump_exp)
 
+# NEU: Argument pump_exp=2.0 wurde hinzugefügt
 def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow,
                                m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus,
-                               pumpen_modus, p_max, q_max, p_zulauf, p_fix):
+                               pumpen_modus, p_max, q_max, p_zulauf, p_fix, pump_exp=2.0):
     
     membran_namen = hydraulik['membran_namen']
     anzahl_membranen = len(membran_namen)
@@ -43,7 +34,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         return (r_val * q_ms**2) / 100000.0
             
     q_min = 1.0
-    q_max = 30000.0 if pumpen_modus == "Gemessenen Druck eintragen (Manometer)" else min(30000.0, q_max * 0.99) 
+    q_max_search = 30000.0 if pumpen_modus == "Gemessenen Druck eintragen (Manometer)" else min(30000.0, q_max * 0.99) 
     
     c_d = 0.71
     area_drossel_m2 = math.pi * ((drossel_vorgabe_mm / 1000.0) / 2)**2
@@ -54,9 +45,11 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
 
     for outer_it in range(5):
         total_permeat_guess = 200.0
+        q_max_bound = q_max_search
+        q_min_bound = q_min
         
         for bisection_it in range(60): 
-            q_feed_guess = (q_min + q_max) / 2.0
+            q_feed_guess = (q_min_bound + q_max_bound) / 2.0
             
             if pumpen_modus == "Gemessenen Druck eintragen (Manometer)":
                 p_aktuell = p_fix
@@ -64,12 +57,13 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             else:
                 p_verlust_saug = calc_dp(q_feed_guess, hydraulik['saug'])
                 p_vor_pumpe = max(0.0, p_zulauf - p_verlust_saug)
-                p_aktuell = p_vor_pumpe + berechne_pumpendruck(q_feed_guess, p_max, q_max)
+                # NEU: Exponent wird in der Physikberechnung genutzt
+                p_aktuell = p_vor_pumpe + berechne_pumpendruck(q_feed_guess, p_max, q_max, pump_exp)
             
             p_split = p_aktuell - calc_dp(q_feed_guess, hydraulik['druck_haupt'])
             
             if p_split <= 0.1:
-                q_max = q_feed_guess
+                q_max_bound = q_feed_guess
                 continue
 
             p_back_main = calc_dp(total_permeat_guess, hydraulik['p_out']) + calc_dp(total_permeat_guess, hydraulik['p_schlauch']) + (hydraulik['p_schlauch'].get('h', 0.0) * 0.0981)
@@ -162,18 +156,18 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
             p_vor_ventil = p_t_stueck_avg - calc_dp(q_c_total_calc, hydraulik['k_out'])
 
             if p_vor_ventil <= 0.0:
-                q_max = q_feed_guess
+                q_max_bound = q_feed_guess
                 continue
 
             v_theo = math.sqrt(2 * (p_vor_ventil * 100000.0) / rho)
             q_c_throttle = c_d * area_drossel_m2 * v_theo * 3600.0 * 1000.0
 
             if q_c_total_calc > q_c_throttle:
-                q_max = q_feed_guess  
+                q_max_bound = q_feed_guess  
             else:
-                q_min = q_feed_guess  
+                q_min_bound = q_feed_guess  
 
-            if abs(q_max - q_min) < 0.5:
+            if abs(q_max_bound - q_min_bound) < 0.5:
                 break
 
         sum_c = sum(1.0 / math.sqrt(r) for r in r_eff_list)
@@ -192,7 +186,7 @@ def simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_
         "max_spacer_dp": max_spacer_dp,
         "membran_daten": membran_daten_temp,
         "p_verlust_saug": p_verlust_saug,
-        "p_verlust_druck_haupt": p_split - p_aktuell,
+        "p_verlust_druck_haupt": p_split - p_aktuell if pumpen_modus != "Gemessenen Druck eintragen (Manometer)" else calc_dp(q_feed_guess, hydraulik['druck_haupt']),
         "p_effektiv_start": p_split,
         "konzentrat_druck_verlauf": max(0.0, p_vor_ventil),
         "abzubauender_druck": max(0.0, p_vor_ventil),
