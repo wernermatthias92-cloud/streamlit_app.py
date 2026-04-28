@@ -222,15 +222,21 @@ with st.sidebar:
             "b": 2
         }
 
+    # NEU: Individuelle Permeatleitungen konfigurierbar
     with st.expander("5. Permeatleitungen", expanded=False):
         perm_zweige = []
         for i in range(anzahl_membranen):
-            perm_zweige.append({"d": 13.2, "l": 300.0, "b": 0})
+            perm_zweige.append({
+                "d": st.number_input(f"Ø Perm {m_namen[i]} (mm)", min_value=0.01, value=10.0, step=0.1, key=f"pd_{i}"), 
+                "l": st.number_input(f"Länge Perm {i} (mm)", min_value=0.01, value=300.0, step=5.0, key=f"pl_{i}"), 
+                "b": st.number_input(f"Bögen Perm {i} (0=Y-Stück)", min_value=0, max_value=20, value=0, key=f"pb_{i}")
+            })
         
+        st.divider()
         perm_out = {
             "d": st.number_input("Ø Sammelrohr Perm (mm)", min_value=0.01, value=13.2, step=0.1, key="pod"), 
             "l": st.number_input("Länge Sammel Perm (mm)", min_value=0.01, value=1000.0, step=5.0, key="pol"), 
-            "b": 0
+            "b": st.number_input("Bögen Sammel Perm", min_value=0, max_value=20, value=0, key="pob")
         }
         
         st.divider()
