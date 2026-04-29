@@ -32,8 +32,8 @@ PUMPEN_DATENBANK = {
     # --- VERDRÄNGERPUMPEN (Membran / Rotation für 12V etc.) ---
     "Shurflo 8000 Serie (12V)": {
         "typ": "Verdraenger",
-        "p_max": 6.9,   # Abschaltdruck (Bypass) in bar
-        "q_max": 340.0, # Feste Förderleistung in l/h
+        "p_max": 6.9,   
+        "q_max": 340.0, 
         "exponent": 1.0, 
         "info": "Kompakte 12V Membranpumpe, ideal für Rucksäcke (ca. 1.5 GPM)"
     },
@@ -46,8 +46,8 @@ PUMPEN_DATENBANK = {
     },
     "Fluid-o-Tech PO 4060 (1450 rpm)": {
         "typ": "Verdraenger",
-        "p_max": 18.0,   # Maximal zulässiger Differenzdruck laut Datenblatt
-        "q_max": 1700.0, # Nominaler Flow (korrigiert nach Leistungsdiagramm Kurve D-D)
+        "p_max": 18.0,   
+        "q_max": 1600.0, 
         "exponent": 1.0, 
         "info": "Industrie-Drehschieberpumpe an IEC 80 Motor, pulsationsarm."
     }
