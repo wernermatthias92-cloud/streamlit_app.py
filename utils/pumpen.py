@@ -43,6 +43,13 @@ PUMPEN_DATENBANK = {
         "q_max": 1130.0,
         "exponent": 1.0,
         "info": "Leistungsstarke 12V Membranpumpe für Trolleys (ca. 5.5 GPM)"
+    },
+    "Fluid-o-Tech PO 4060 (1450 rpm)": {
+        "typ": "Verdraenger",
+        "p_max": 18.0,   # Maximal zulässiger Differenzdruck laut Datenblatt
+        "q_max": 1700.0, # Nominaler Flow (korrigiert nach Leistungsdiagramm Kurve D-D)
+        "exponent": 1.0, 
+        "info": "Industrie-Drehschieberpumpe an IEC 80 Motor, pulsationsarm."
     }
 }
 
