@@ -16,8 +16,8 @@ PUMPEN_DATENBANK = {
     },
     "Speck MTX 3-60 (230V)": {
         "typ": "Kreisel",
-        "p_max": 6.0, 
-        "q_max": 4500.0, 
+        "p_max": 6.8, 
+        "q_max": 4800.0, 
         "exponent": 3.0,
         "info": "Mehrstufige Hochdruck-Kreiselpumpe"
     },
