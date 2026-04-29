@@ -50,6 +50,20 @@ PUMPEN_DATENBANK = {
         "q_max": 1600.0, 
         "exponent": 1.0, 
         "info": "Industrie-Drehschieberpumpe an IEC 80 Motor, pulsationsarm."
+    },
+    "DSP800": {
+        "typ": "Verdraenger",
+        "p_max": 18.0,   
+        "q_max": 800.0, 
+        "exponent": 1.0, 
+        "info": "Industrie-Drehschieberpumpe (800 l/h)"
+    },
+    "DSP600": {
+        "typ": "Verdraenger",
+        "p_max": 18.0,   
+        "q_max": 600.0, 
+        "exponent": 1.0, 
+        "info": "Industrie-Drehschieberpumpe (600 l/h)"
     }
 }
 
