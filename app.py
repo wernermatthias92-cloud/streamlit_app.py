@@ -6,9 +6,9 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand
 from system.parallel import simuliere_parallel
 from system.parallel_drossel import simuliere_parallel_drossel
-from system.parallel_verdraenger import simuliere_parallel_verdraenger # Neu
+from system.parallel_verdraenger import simuliere_parallel_verdraenger
 from hydraulik.netzwerk import analysiere_gesamte_topologie, berechne_feed_widerstaende
-from utils.pumpen import PUMPEN_DATENBANK, get_pumpen_namen, get_pumpen_typ # Neu: get_pumpen_typ
+from utils.pumpen import PUMPEN_DATENBANK, get_pumpen_namen, get_pumpen_typ
 from utils.pdf_export import generiere_pdf
 from utils.konfiguration import exportiere_konfiguration, lade_konfiguration
 
@@ -283,7 +283,17 @@ else:
     # PDF Export Button
     with col_btn:
         st.write("") 
-        pdf_bytes = generiere_pdf(inputs_fuer_pdf={**netzwerk_cfg, **pump_cfg}, ergebnisse=ergebnisse)
+        
+        inputs_fuer_pdf = {
+            "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
+            "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
+            "m_rueckhalt": m_rueckhalt, "tds_feed": tds_feed, "temp": temp, "trocken_modus": trocken_modus, "p_system": pump_cfg.get("p_fix", 0),
+            "zuleitung_saug": saug_cfg, "zuleitung_druck": druck_cfg,
+            "konz_leitungen": konz_zweige, "konz_out": konz_out,
+            "perm_leitungen": perm_zweige, "perm_out": perm_out, "perm_schlauch": perm_schlauch
+        }
+        
+        pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
         st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf", use_container_width=True)
 
     st.subheader("📊 Performance & Leitwerte")
