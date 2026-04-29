@@ -6,7 +6,9 @@ import math
 from hydraulik.widerstand import berechne_hydraulischen_widerstand
 from system.parallel import simuliere_parallel
 from system.parallel_drossel import simuliere_parallel_drossel
+from system.parallel_verdraenger import simuliere_parallel_verdraenger # Neu
 from hydraulik.netzwerk import analysiere_gesamte_topologie, berechne_feed_widerstaende
+from utils.pumpen import PUMPEN_DATENBANK, get_pumpen_namen, get_pumpen_typ # Neu: get_pumpen_typ
 from utils.pdf_export import generiere_pdf
 from utils.konfiguration import exportiere_konfiguration, lade_konfiguration
 
@@ -103,23 +105,19 @@ with st.sidebar:
         st.divider()
         if auslegungs_modus == "Ziel-Ausbeute vorgeben":
             p_system = st.number_input("Systemdruck nach Pumpe (bar)", value=9.4, step=0.1, format="%.1f", key="p_system_ziel")
-            pump_cfg = {"mode": None, "p_max": 0, "q_max": 0, "p_fix": p_system, "p_z": 0, "exp": 2.0}
+            pump_cfg = {"mode": None, "typ": "Kreisel", "p_max": 0, "q_max": 0, "p_fix": p_system, "p_z": 0, "exp": 2.0}
         else:
             pump_mode = st.radio("Druck-Ermittlung", ["Manometer", "Kennlinie"])
             p_z = st.number_input("Zulaufdruck (bar)", value=3.0)
             
             if pump_mode == "Manometer":
                 p_fix = st.number_input("Manometerdruck (bar)", value=9.4)
-                pump_cfg = {"mode": "Manometer", "p_max": 0, "q_max": 0, "p_fix": p_fix, "p_z": p_z, "exp": 2.0}
+                pump_cfg = {"mode": "Manometer", "typ": "Kreisel", "p_max": 0, "q_max": 0, "p_fix": p_fix, "p_z": p_z, "exp": 2.0}
             else:
-                try:
-                    from utils.pumpen import PUMPEN_DATENBANK, get_pumpen_namen
-                    pumpen_namen = get_pumpen_namen()
-                except ImportError:
-                    PUMPEN_DATENBANK = {"Manuelle Eingabe": {"p_max": 11.5, "q_max": 1920.0, "exponent": 2.0, "info": ""}}
-                    pumpen_namen = ["Manuelle Eingabe"]
-                    
+                pumpen_namen = get_pumpen_namen()
                 pumpen_auswahl = st.selectbox("Pumpe wählen", pumpen_namen)
+                p_typ = get_pumpen_typ(pumpen_auswahl)
+
                 if pumpen_auswahl == "Manuelle Eingabe":
                     p_max = st.number_input("Max. Druck (bar)", value=11.5)
                     q_max = st.number_input("Max. Flow (l/h)", value=1920.0)
@@ -127,10 +125,10 @@ with st.sidebar:
                 else:
                     db_pumpe = PUMPEN_DATENBANK[pumpen_auswahl]
                     p_max, q_max, pump_exp = db_pumpe["p_max"], db_pumpe["q_max"], db_pumpe["exponent"]
-                    st.success(f"**{pumpen_auswahl} geladen**\n\nMax: {p_max} bar | {q_max} l/h | Exp: {pump_exp}")
+                    st.success(f"**{pumpen_auswahl} geladen**\n\nMax: {p_max} bar | {q_max} l/h | Typ: {p_typ}")
                     st.caption(db_pumpe["info"])
                     
-                pump_cfg = {"mode": "Kennlinie", "p_max": p_max, "q_max": q_max, "p_z": p_z, "exp": pump_exp}
+                pump_cfg = {"mode": "Kennlinie", "typ": p_typ, "p_max": p_max, "q_max": q_max, "p_z": p_z, "exp": pump_exp}
 
     with st.expander("3. Zuleitung & T-Stücke", expanded=False):
         if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pump_cfg["mode"] == "Manometer":
@@ -165,14 +163,16 @@ with st.sidebar:
                     "b_a": st.number_input("B A", min_value=0, value=1, key="b_a")
                 })
                 sub_a = st.checkbox("A aufteilen", key="sub_a")
-                netzwerk_cfg.update({"sub_a": sub_a, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0})
                 if sub_a:
                     netzwerk_cfg.update({
+                        "sub_a": True,
                         "d_a1": render_schlauch_auswahl("Schlauch A1", "d_a1"), 
                         "l_a1": st.number_input("L A1", min_value=0.01, value=500.0, step=5.0, key="l_a1"), "b_a1": 0,
                         "d_a2": render_schlauch_auswahl("Schlauch A2", "d_a2"), 
                         "l_a2": st.number_input("L A2", min_value=0.01, value=500.0, step=5.0, key="l_a2"), "b_a2": 0
                     })
+                else:
+                    netzwerk_cfg.update({"sub_a": False, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0})
             with colB:
                 st.markdown("Strang B")
                 netzwerk_cfg.update({
@@ -181,14 +181,16 @@ with st.sidebar:
                     "b_b": st.number_input("B B", min_value=0, value=1, key="b_b")
                 })
                 sub_b = st.checkbox("B aufteilen", value=False, key="sub_b")
-                netzwerk_cfg.update({"sub_b": sub_b, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
                 if sub_b:
                     netzwerk_cfg.update({
+                        "sub_b": True,
                         "d_b1": render_schlauch_auswahl("Schlauch B1", "d_b1"), 
                         "l_b1": st.number_input("L B1", min_value=0.01, value=200.0, step=5.0, key="l_b1"), "b_b1": 0,
                         "d_b2": render_schlauch_auswahl("Schlauch B2", "d_b2"), 
                         "l_b2": st.number_input("L B2", min_value=0.01, value=200.0, step=5.0, key="l_b2"), "b_b2": 0
                     })
+                else:
+                    netzwerk_cfg.update({"sub_b": False, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
         else:
             netzwerk_cfg.update({"d_a": 0, "l_a": 0, "b_a": 0, "sub_a": False, "d_a1": 0, "l_a1": 0, "b_a1": 0, "d_a2": 0, "l_a2": 0, "b_a2": 0,
                                  "d_b": 0, "l_b": 0, "b_b": 0, "sub_b": False, "d_b1": 0, "l_b1": 0, "b_b1": 0, "d_b2": 0, "l_b2": 0, "b_b2": 0})
@@ -233,27 +235,21 @@ with st.sidebar:
             "h": st.number_input("Höhendifferenz Austritt (m)", value=0.0, step=0.5, key="psh")
         }
 
-# --- 3. BERECHNUNGSLOGIK DREIFACH AUSFÜHREN ---
+# --- 3. BERECHNUNGSLOGIK ---
 hydraulik = analysiere_gesamte_topologie(saug_cfg, druck_cfg, netzwerk_cfg, konz_zweige, konz_out, perm_zweige, perm_out, perm_schlauch)
-
-tol = 0.18
-m_test_flow_min = m_test_flow_effektiv * (1 - tol)
-m_test_flow_max = m_test_flow_effektiv * (1 + tol)
 
 if auslegungs_modus == "Ziel-Ausbeute vorgeben":
     ergebnisse_ideal = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg.get("p_fix", 0))
-    ergebnisse_min = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg.get("p_fix", 0))
-    ergebnisse_max = simuliere_parallel(hydraulik, ausbeute_pct, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg.get("p_fix", 0))
+    ergebnisse = ergebnisse_ideal 
+elif pump_cfg.get("typ") == "Verdraenger":
+    ergebnisse_ideal = simuliere_parallel_verdraenger(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["p_max"], pump_cfg["q_max"])
+    ergebnisse = ergebnisse_ideal
 else:
     ergebnisse_ideal = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_effektiv, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
-    ergebnisse_min = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_min, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
-    ergebnisse_max = simuliere_parallel_drossel(hydraulik, drossel_vorgabe_mm, m_flaeche, m_test_flow_max, m_test_druck, m_test_tds, m_rueckhalt, tds_feed, temp, trocken_modus, pump_cfg["mode"], pump_cfg["p_max"], pump_cfg["q_max"], pump_cfg["p_z"], pump_cfg.get("p_fix", 0), pump_cfg["exp"])
-
-ergebnisse = ergebnisse_ideal 
+    ergebnisse = ergebnisse_ideal 
 
 # --- 4. MAIN WINDOW ---
 col_title, col_btn = st.columns([3, 1])
-
 with col_title: st.title("💧 RO-Anlagen Planer")
 
 with col_btn:
@@ -278,90 +274,37 @@ with col_btn:
         json_string = exportiere_konfiguration(aktuelle_konfig)
         st.download_button(label="Als .json exportieren", data=json_string, file_name=wunsch_dateiname, mime="application/json", use_container_width=True)
 
-if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pump_cfg["mode"] == "Manometer":
-    st.warning("⚠️ **Physikalischer Hinweis:** Du hast den Systemdruck fixiert (Manometer-Modus). Wenn du jetzt den Drosseldurchmesser änderst, rechnet das Programm mit einer *unendlich starken Pumpe*, die diesen Druck zwingend aufrecht erhält. Der Konzentratstrom wird dadurch massiv ansteigen, aber das Permeat bleibt konstant! Um den realen Druck- und Permeateinbruch beim Öffnen der Drossel zu simulieren, stelle den Modus in der Sidebar bitte auf **'Kennlinie'** um.")
+if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)" and pump_cfg.get("mode") == "Manometer":
+    st.warning("⚠️ **Physikalischer Hinweis:** Du hast den Systemdruck fixiert (Manometer-Modus).")
 
 if ergebnisse.get("error"):
     st.error(ergebnisse["error"])
 else:
-    p_ideal, p_min, p_max = ergebnisse_ideal.get('total_permeat', 0), ergebnisse_min.get('total_permeat', 0), ergebnisse_max.get('total_permeat', 0)
-    k_ideal, k_min, k_max = ergebnisse_ideal.get('end_konzentrat_flow', 0), ergebnisse_min.get('end_konzentrat_flow', 0), ergebnisse_max.get('end_konzentrat_flow', 0)
-    ptds_ideal, ptds_min, ptds_max = ergebnisse_ideal.get('total_permeat_tds', 0), ergebnisse_min.get('total_permeat_tds', 0), ergebnisse_max.get('total_permeat_tds', 0)
-    ktds_ideal, ktds_min, ktds_max = ergebnisse_ideal.get('final_konzentrat_tds', 0), ergebnisse_min.get('final_konzentrat_tds', 0), ergebnisse_max.get('final_konzentrat_tds', 0)
-
-    inputs_fuer_pdf = {
-        "schaltung": schaltung, "anzahl_membranen": anzahl_membranen, "ausbeute_pct": ausbeute_pct,
-        "m_flaeche": m_flaeche, "m_test_flow": m_test_flow_effektiv, "m_test_druck": m_test_druck,
-        "m_rueckhalt": m_rueckhalt, "tds_feed": tds_feed, "temp": temp, "trocken_modus": trocken_modus, "p_system": pump_cfg.get("p_fix", 0),
-        "zuleitung_saug": saug_cfg, "zuleitung_druck": druck_cfg,
-        "konz_leitungen": konz_zweige, "konz_out": konz_out,
-        "perm_leitungen": perm_zweige, "perm_out": perm_out, "perm_schlauch": perm_schlauch
-    }
-    
+    # PDF Export Button
     with col_btn:
         st.write("") 
-        pdf_bytes = generiere_pdf(inputs_fuer_pdf, ergebnisse)
+        pdf_bytes = generiere_pdf(inputs_fuer_pdf={**netzwerk_cfg, **pump_cfg}, ergebnisse=ergebnisse)
         st.download_button("📄 PDF Export", data=pdf_bytes, file_name="ro_protokoll.pdf", mime="application/pdf", use_container_width=True)
 
-    st.subheader("📊 Performance & Leitwerte (±18%)")
-    if trocken_modus: st.info("🏜️ **Trocken-Modus aktiv:** Permeabilität wurde um +15 % erhöht, nomineller Rückhalt um -2,5 % reduziert.")
+    st.subheader("📊 Performance & Leitwerte")
+    if trocken_modus: st.info("🏜️ **Trocken-Modus aktiv.**")
     
-    h1, h2, h3, h4 = st.columns([2, 1, 1, 1])
-    h2.markdown("**Minimum (-18%)**")
-    h3.markdown("**Idealwert**")
-    h4.markdown("**Maximum (+18%)**")
-    st.divider()
-
-    def perf_row(label, v_min, v_ideal, v_max, unit, precision=1):
-        r1, r2, r3, r4 = st.columns([2, 1, 1, 1])
-        r1.markdown(f"**{label}**")
-        r2.write(f"{v_min:.{precision}f} {unit}")
-        r3.write(f"**{v_ideal:.{precision}f} {unit}**")
-        r4.write(f"{v_max:.{precision}f} {unit}")
-        
-    def us_ppm(ppm): return f"{ppm/0.6:.1f} µS/cm ({ppm:.1f} ppm)"
-
-    perf_row("Permeatfluss", p_min, p_ideal, p_max, "l/h")
-    perf_row("Konzentratfluss", k_min, k_ideal, k_max, "l/h")
-    
-    col_l, col1, col2, col3 = st.columns([2, 1, 1, 1])
-    col_l.markdown("**Permeat Qualität**")
-    col1.write(us_ppm(ptds_min))
-    col2.write(f"**{us_ppm(ptds_ideal)}**")
-    col3.write(us_ppm(ptds_max))
-
-    col_l, col1, col2, col3 = st.columns([2, 1, 1, 1])
-    col_l.markdown("**Konzentrat Qualität**")
-    col1.write(us_ppm(ktds_min))
-    col2.write(f"**{us_ppm(ktds_ideal)}**")
-    col3.write(us_ppm(ktds_max))
+    # Ergebnisse anzeigen (Permeat/Konz/TDS)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Permeatfluss", f"{ergebnisse['total_permeat']:.1f} l/h")
+    m2.metric("Konzentratfluss", f"{ergebnisse['end_konzentrat_flow']:.1f} l/h")
+    m3.metric("Permeat TDS", f"{ergebnisse['total_permeat_tds']:.1f} ppm")
     
     st.divider()
     st.dataframe(pd.DataFrame(ergebnisse['membran_daten']), use_container_width=True)
-    st.caption("💡 **Flux Info:** Ein Flux zwischen 15-25 LMH gilt bei Brunnenwasser als konservativ/sicher.")
     
     st.divider()
     st.subheader("🛡️ Sicherheits-Check & Hydraulik")
     dp = ergebnisse.get('max_spacer_dp', 0)
-    
-    if dp > 1.03: st.error(f"⚠️ **KRITISCHER DRUCKVERLUST:** {dp:.2f} bar. Der maximale Druckverlust von 1,03 bar wurde überschritten! (Gefahr von Telescoping)")
-    elif dp > 0.8: st.warning(f"🔔 **Hoher Druckverlust:** {dp:.2f} bar. Du näherst dich dem Limit von 1,03 bar.")
-    else: st.success(f"✅ **Druckverlust Spacer:** {dp:.2f} bar (Limit: 1,03 bar)")
+    if dp > 1.03: st.error(f"⚠️ **KRITISCHER DRUCKVERLUST:** {dp:.2f} bar.")
+    else: st.success(f"✅ **Druckverlust Spacer:** {dp:.2f} bar")
         
-    st.write("")
     v1, v2, v3 = st.columns(3)
-    
-    if auslegungs_modus == "Drossel-Ø vorgeben (Digital Twin)":
-        if pump_cfg["mode"] == "Manometer": v1.metric("Pumpendruck (Fix)", f"{pump_cfg.get('p_fix', 0):.2f} bar")
-        else: v1.metric("Pumpendruck (Real)", f"{ergebnisse.get('realer_pumpendruck', 0):.2f} bar")
-        v3.metric("Drossel Ø (Fix)", f"Ø {drossel_vorgabe_mm:.2f} mm")
-    else:
-        v1.metric("Systemdruck (Vorgabe)", f"{pump_cfg.get('p_fix', 0):.2f} bar")
-        v3.metric("Empfohlener Drossel Ø", f"Ø {ergebnisse['empfohlene_drossel_mm']:.2f} mm")
-        
+    v1.metric("Realer Pumpendruck", f"{ergebnisse.get('realer_pumpendruck', 0):.2f} bar")
     v2.metric("Druck vor Ventil", f"{ergebnisse['konzentrat_druck_verlauf']:.2f} bar")
-
-    with st.expander("Detaillierte Druckverluste"):
-        st.write(f"Druckverlust Saugseite: {ergebnisse['p_verlust_saug']:.3f} bar")
-        st.write(f"Druckverlust Hauptleitung: {ergebnisse['p_verlust_druck_haupt']:.3f} bar")
-        st.write(f"Effektiver Druck am Verzweigungspunkt: {ergebnisse['p_effektiv_start']:.2f} bar")
+    v3.metric("Drossel Ø", f"Ø {ergebnisse['empfohlene_drossel_mm']:.2f} mm")
