@@ -54,7 +54,7 @@ PUMPEN_DATENBANK = {
     "DSP800": {
         "typ": "Verdraenger",
         "p_max": 18.0,   
-        "q_max": 800.0, 
+        "q_max": 1000.0, 
         "exponent": 1.0, 
         "info": "Industrie-Drehschieberpumpe (800 l/h)"
     },
